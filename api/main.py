@@ -4,6 +4,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, Query
 from fastapi.responses import JSONResponse
 from redis import Redis
 from rq import Queue
+import httpx
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -15,6 +16,7 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 DATA_DIR  = Path(os.getenv("DATA_DIR", "/data"))
 LANG_DEFAULT = "ru"
 API_TOKENS = {t.strip() for t in os.getenv("API_AUTH_TOKEN", "").split(",") if t.strip()}
+TRANSCRIBE_SERVER_URL = os.getenv("TRANSCRIBE_SERVER_URL", "http://worker_transcribe:8002")
 
 def require_auth(authorization: str = Header(default=None), x_api_key: str = Header(default=None)):
     """
@@ -77,21 +79,36 @@ def jobs_dir(job_id: str) -> Path:
 def ensure_dirs(p: Path):
     p.mkdir(parents=True, exist_ok=True)
 
+async def send_to_transcribe_server(job_id: str, audio_path: str, language: str):
+    """Отправляет аудиофайл в сервер транскрибации через HTTP"""
+    try:
+        # Открываем файл для отправки
+        with open(audio_path, "rb") as audio_file:
+            files = {"file": audio_file}
+            
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{TRANSCRIBE_SERVER_URL}/transcribe?job_id={job_id}&language={language}",
+                    files=files,
+                    timeout=30.0
+                )
+                
+                if response.status_code == 200:
+                    print(f"Файл успешно отправлен в сервер транскрибации для job_id: {job_id}")
+                    return True
+                else:
+                    print(f"Ошибка отправки в сервер транскрибации: {response.status_code} - {response.text}")
+                    return False
+                    
+    except Exception as e:
+        print(f"Ошибка при отправке в сервер транскрибации: {e}")
+        return False
+
 def enqueue_asr(job_id: str, audio_path: str, language: str):
-    r = Redis.from_url(REDIS_URL)
-    q = Queue("asr", connection=r)
-    
-    # Получаем таймаут из переменных окружения или используем значение по умолчанию
-    timeout = int(os.getenv("TRANSCRIBE_TIMEOUT", "6000"))  # 10 минут по умолчанию
-    
-    q.enqueue(
-        "tasks.transcribe.transcribe_job", 
-        job_id, 
-        audio_path, 
-        language,
-        job_timeout=timeout,
-        result_ttl=timeout * 2  # Результат хранится в 2 раза дольше таймаута
-    )
+    """Устаревшая функция - теперь используем HTTP сервер"""
+    print(f"enqueue_asr устарел, используем HTTP сервер для job_id: {job_id}")
+    # Оставляем для совместимости, но не используем
+    pass
 
 @app.get("/healthz")
 def healthz(_auth=Depends(require_auth)):
@@ -155,21 +172,51 @@ async def upload(
     meta = {"job_id": job_id, "filename": file.filename, "language": language}
     (jdir / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), "utf-8")
 
-    enqueue_asr(job_id, str(audio_path), language)
-    return {"job_id": job_id, "status": "queued"}
+    # Отправляем файл в сервер транскрибации
+    success = await send_to_transcribe_server(job_id, str(audio_path), language)
+    
+    if success:
+        return {"job_id": job_id, "status": "processing"}
+    else:
+        # Если не удалось отправить в сервер транскрибации, возвращаем ошибку
+        return JSONResponse(
+            {"job_id": job_id, "status": "error", "error": "Failed to send to transcription server"}, 
+            status_code=500
+        )
 
 @app.get("/status/{job_id}")
-def status(job_id: str, _auth=Depends(require_auth)): 
+async def status(job_id: str, _auth=Depends(require_auth)): 
     jdir = jobs_dir(job_id)
     if not jdir.exists():
         raise HTTPException(404, "job not found")
 
     transcript = jdir / "transcript.json"
     summary    = jdir / "summary.json"
+    
+    # Если есть готовый результат, возвращаем его
     if summary.exists():
         return {"job_id": job_id, "status": "done"}
     if transcript.exists():
         return {"job_id": job_id, "status": "transcribed_waiting_summary"}
+    
+    # Если нет готового результата, проверяем статус в сервере транскрибации
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{TRANSCRIBE_SERVER_URL}/status/{job_id}",
+                timeout=10.0
+            )
+            
+            if response.status_code == 200:
+                server_status = response.json()
+                return {
+                    "job_id": job_id,
+                    "status": server_status.get("status", "processing"),
+                    "server_status": server_status
+                }
+    except Exception as e:
+        print(f"Ошибка при проверке статуса в сервере транскрибации: {e}")
+    
     return {"job_id": job_id, "status": "processing"}
 
 @app.get("/result/{job_id}")

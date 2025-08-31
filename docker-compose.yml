@@ -50,13 +50,16 @@ services:
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_FAST_MODE=${WHISPER_FAST_MODE:-false}
-      - TRANSCRIBE_TIMEOUT=${TRANSCRIBE_TIMEOUT:-600}
+      - TRANSCRIBE_SERVER_PORT=${TRANSCRIBE_SERVER_PORT:-8002}
       - PYTHONPATH=/app:/tasks
     volumes:
       - ./tasks:/app/tasks
       - ./data:/data
+    ports:
+      - "8002:8002"
     depends_on: [redis]
-    command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
+    # Теперь запускаем HTTP сервер вместо RQ worker
+    # command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
 
   worker_summarize:
     build: ./workers/summarize

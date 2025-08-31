@@ -3,3 +3,4 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 redis==5.0.7
 rq==1.16.2
+httpx==0.25.2
