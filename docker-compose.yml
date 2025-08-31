@@ -1,0 +1,56 @@
+version: "3.9"
+
+services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  api:
+    build: ./api
+    env_file: .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - DATA_DIR=/data
+      - PYTHONPATH=/app:/tasks
+    volumes:
+      - ./api:/app
+      - ./tasks:/tasks
+      - ./data:/data
+    ports:
+      - "8000:8000"
+    depends_on: [redis]
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
+
+  worker_transcribe:
+    build: ./workers/transcribe
+    env_file: .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - DATA_DIR=/data
+      - WHISPER_MODEL=${WHISPER_MODEL:-medium}
+      - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
+      - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
+      - PYTHONPATH=/tasks
+    volumes:
+      - ./tasks:/tasks
+      - ./data:/data
+    depends_on: [redis]
+    command: sh -c "rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
+
+  worker_summarize:
+    build: ./workers/summarize
+    env_file: .env
+    environment:
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379}
+      - DATA_DIR=/data
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - PYTHONPATH=/tasks
+    volumes:
+      - ./tasks:/tasks
+      - ./data:/data
+    depends_on: [redis]
+    command: sh -c "rq worker -u ${REDIS_URL:-redis://redis:6379} sum"

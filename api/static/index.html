@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Аудио → Транскрипция + Саммари</title>
+  <style>
+    body{font-family:system-ui, sans-serif;max-width:920px;margin:24px auto;padding:0 16px}
+    h1{font-size:1.6rem;margin:0 0 12px}
+    .card{border:1px solid #ddd;border-radius:12px;padding:16px;margin:12px 0;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+    button{padding:10px 14px;border-radius:10px;border:1px solid #ccc;background:#fff;cursor:pointer}
+    button.primary{background:#111;color:#fff;border-color:#111}
+    button[disabled]{opacity:.5;cursor:not-allowed}
+    input[type="file"]{display:block;margin:8px 0}
+    .muted{color:#666}
+    pre{white-space:pre-wrap;background:#f7f7f7;border-radius:8px;padding:12px;overflow:auto}
+    .mono{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+    .pill{display:inline-block;border:1px solid #ddd;border-radius:999px;padding:6px 10px;margin-right:8px;background:#fafafa}
+    .ok{color:#0a7a32} .warn{color:#a66a00}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    @media (max-width: 800px){.grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+  <h1>Запись/загрузка аудио → Whisper → DeepSeek</h1>
+
+  <div class="card">
+    <div class="row">
+      <label>API base:</label>
+      <input id="apiBase" class="mono" style="min-width:280px" value="" placeholder="http://localhost:8000">
+      <label>Язык:</label>
+      <select id="lang"><option value="ru" selected>ru</option><option value="en">en</option></select>
+    </div>
+    <div class="muted" style="margin-top:6px">
+      По умолчанию берётся текущий origin. Если API на другом хосте/порту — укажи тут, например: <span class="mono">http://localhost:8000</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🎙️ Запись с микрофона (браузер)</h3>
+    <div class="row">
+      <button id="btnStart" class="primary">Начать запись</button>
+      <button id="btnStop" disabled>Остановить</button>
+      <span id="recStatus" class="pill muted">не записывается</span>
+    </div>
+    <div id="recTime" class="muted" style="margin-top:8px"></div>
+    <audio id="player" controls style="display:none;margin-top:8px"></audio>
+  </div>
+
+  <div class="card">
+    <h3>📤 Или загрузить готовый файл</h3>
+    <input id="fileInput" type="file" accept="audio/*,video/webm"/>
+    <button id="btnUpload">Загрузить</button>
+  </div>
+
+  <div id="jobs"></div>
+
+<script>
+(() => {
+  const $ = sel => document.querySelector(sel);
+  const apiBaseInput = $('#apiBase');
+  const langSel = $('#lang');
+  const btnStart = $('#btnStart');
+  const btnStop = $('#btnStop');
+  const statusSpan = $('#recStatus');
+  const recTimeEl = $('#recTime');
+  const fileInput = $('#fileInput');
+  const btnUpload = $('#btnUpload');
+  const player = $('#player');
+  const jobs = $('#jobs');
+
+  // API base: по умолчанию текущий origin
+  apiBaseInput.value = `${location.protocol}//${location.host}`;
+
+  // ====== запись ======
+  let mediaRecorder, chunks=[], startTs=null, tickTimer=null, recordedBlob=null, recordedName=null;
+
+  function supports(mime){ return (window.MediaRecorder && MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(mime)); }
+
+  async function startRec(){
+    try{
+      const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+      const mime = supports('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                  : supports('audio/ogg;codecs=opus')  ? 'audio/ogg;codecs=opus'
+                  : 'audio/webm';
+      mediaRecorder = new MediaRecorder(stream, {mimeType: mime});
+      chunks=[]; recordedBlob=null; recordedName=null;
+      mediaRecorder.ondataavailable = e => { if(e.data && e.data.size>0) chunks.push(e.data); };
+      mediaRecorder.onstop = onStopRec;
+      mediaRecorder.start(250); // каждые 250мс чанки
+      startTs = Date.now();
+      tickTimer = setInterval(()=>{
+        const s = Math.floor((Date.now()-startTs)/1000);
+        recTimeEl.textContent = `Идёт запись: ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+      }, 500);
+      btnStart.disabled = true; btnStop.disabled = false;
+      statusSpan.textContent = 'запись…';
+      statusSpan.className = 'pill';
+    }catch(err){
+      alert('Не удалось получить доступ к микрофону: '+err);
+    }
+  }
+
+  function onStopRec(){
+    clearInterval(tickTimer);
+    const blob = new Blob(chunks, {type: mediaRecorder.mimeType || 'audio/webm'});
+    recordedBlob = blob;
+    recordedName = `recording_${new Date().toISOString().replace(/[:.]/g,'-')}.${blob.type.startsWith('audio/ogg')?'ogg':'webm'}`;
+    player.src = URL.createObjectURL(blob);
+    player.style.display = 'block';
+    recTimeEl.textContent = `Запись завершена: ${(blob.size/1024/1024).toFixed(2)} MB`;
+    statusSpan.textContent = 'готово к загрузке';
+    statusSpan.className = 'pill ok';
+    // авто-отправка
+    uploadBlob(blob, recordedName);
+  }
+
+  function stopRec(){
+    if(mediaRecorder && mediaRecorder.state!=='inactive'){
+      mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(t=>t.stop());
+    }
+    btnStart.disabled = false; btnStop.disabled = true;
+  }
+
+  btnStart.onclick = startRec;
+  btnStop.onclick = stopRec;
+
+  // ====== загрузка файла ======
+  btnUpload.onclick = ()=>{
+    const f = fileInput.files?.[0];
+    if(!f){ alert('Выбери файл'); return; }
+    uploadBlob(f, f.name);
+  };
+
+  // ====== отправка в API ======
+  async function uploadBlob(blob, filename){
+    const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
+    const lang = langSel.value || 'ru';
+    const card = makeJobCard({filename, lang});
+    jobs.prepend(card.el);
+
+    try{
+      const fd = new FormData();
+      fd.append('file', blob, filename);
+      const res = await fetch(`${apiBase}/upload?language=${encodeURIComponent(lang)}`, {
+        method: 'POST', body: fd
+      });
+      if(!res.ok){ throw new Error(await res.text()); }
+      const {job_id} = await res.json();
+      card.setJobId(job_id);
+      pollStatus(apiBase, job_id, card);
+    }catch(e){
+      card.setError('Ошибка загрузки: '+e.message);
+    }
+  }
+
+  function makeJobCard({filename, lang}){
+    const el = document.createElement('div');
+    el.className='card';
+    el.innerHTML = `
+      <div class="row"><strong>${filename}</strong><span class="pill">lang=${lang}</span></div>
+      <div class="muted mono" style="margin-top:4px">job: <span class="jobid">—</span></div>
+      <div class="muted" style="margin-top:6px">Статус: <span class="status">—</span></div>
+      <div class="grid" style="margin-top:12px;display:none">
+        <div><h4>Транскрипт</h4><pre class="transcript"></pre></div>
+        <div><h4>Саммари</h4><pre class="summary"></pre></div>
+      </div>
+      <div class="row" style="margin-top:8px;display:none">
+        <button class="btn-json">Скачать JSON</button>
+        <button class="btn-copy">Скопировать саммари</button>
+      </div>
+    `;
+    const jobEl = el.querySelector('.jobid');
+    const stEl  = el.querySelector('.status');
+    const grid  = el.querySelector('.grid');
+    const trEl  = el.querySelector('.transcript');
+    const smEl  = el.querySelector('.summary');
+    const btnJson = el.querySelector('.btn-json');
+    const btnCopy = el.querySelector('.btn-copy');
+    const btnRow  = btnJson.parentElement;
+
+    let lastResult=null;
+
+    return {
+      el,
+      setJobId(id){ jobEl.textContent=id; },
+      setStatus(s){ stEl.textContent=s; },
+      setError(msg){ stEl.innerHTML = `<span class="warn">${msg}</span>`; },
+      showResult(data){
+        lastResult=data;
+        grid.style.display='grid';
+        btnRow.style.display='flex';
+        trEl.textContent = data?.transcript?.text || '';
+        const s = data?.summary;
+        smEl.textContent = s
+          ? (s.meeting_summary
+              ? `Резюме:\n${s.meeting_summary}\n\nКлючевые:\n- ${(s.key_points||[]).join('\n- ')}\n\nAction items:\n${(s.action_items||[]).map(a=>`- ${a.owner||'-'}: ${a.task||'-'} (до ${a.due||'-'})`).join('\n')}\n\nРиски:\n- ${(s.risks||[]).join('\n- ')}` 
+              : (s.raw || JSON.stringify(s, null, 2)))
+          : '';
+
+        btnJson.onclick = ()=>{
+          const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = `result_${data.job_id}.json`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        };
+        btnCopy.onclick = async ()=>{
+          try{
+            await navigator.clipboard.writeText(smEl.textContent || '');
+            btnCopy.textContent='Скопировано!';
+            setTimeout(()=>btnCopy.textContent='Скопировать саммари',1200);
+          }catch(e){ alert('Не удалось скопировать'); }
+        };
+      }
+    }
+  }
+
+  async function pollStatus(apiBase, jobId, card){
+    card.setStatus('processing…');
+    let done=false;
+    const tick = async ()=>{
+      try{
+        const s = await fetch(`${apiBase}/status/${jobId}`).then(r=>r.json());
+        card.setStatus(s.status);
+        if(s.status==='done'){
+          const out = await fetch(`${apiBase}/result/${jobId}`).then(r=>r.json());
+          card.showResult(out);
+          done=true;
+        }
+      }catch(e){
+        card.setStatus('ошибка: '+e.message);
+      }
+      if(!done) setTimeout(tick, 2500);
+    };
+    tick();
+  }
+})();
+</script>
+</body>
+</html>
