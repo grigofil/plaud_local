@@ -9,4 +9,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 ENV PYTHONUNBUFFERED=1
-# сами задачи монтируются томом ./tasks:/tasks (см. compose)
+# сами задачи монтируются томом ./tasks:/app/tasks (см. compose)

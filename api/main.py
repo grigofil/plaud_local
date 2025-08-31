@@ -80,7 +80,18 @@ def ensure_dirs(p: Path):
 def enqueue_asr(job_id: str, audio_path: str, language: str):
     r = Redis.from_url(REDIS_URL)
     q = Queue("asr", connection=r)
-    q.enqueue("tasks.transcribe.transcribe_job", job_id, audio_path, language)
+    
+    # Получаем таймаут из переменных окружения или используем значение по умолчанию
+    timeout = int(os.getenv("TRANSCRIBE_TIMEOUT", "6000"))  # 10 минут по умолчанию
+    
+    q.enqueue(
+        "tasks.transcribe.transcribe_job", 
+        job_id, 
+        audio_path, 
+        language,
+        job_timeout=timeout,
+        result_ttl=timeout * 2  # Результат хранится в 2 раза дольше таймаута
+    )
 
 @app.get("/healthz")
 def healthz(_auth=Depends(require_auth)):
@@ -166,12 +177,154 @@ def result(job_id: str, _auth=Depends(require_auth)):
     jdir = jobs_dir(job_id)
     if not jdir.exists():
         raise HTTPException(404, "job not found")
+    
     transcript = jdir / "transcript.json"
-    summary    = jdir / "summary.json"
+    summary = jdir / "summary.json"
+    
+    # Проверяем, что транскрипт готов
     if not transcript.exists():
-        return JSONResponse({"error": "not_ready"}, status_code=202)
+        return JSONResponse({"error": "transcript_not_ready"}, status_code=202)
+    
     out = {"job_id": job_id}
-    out["transcript"] = json.loads(transcript.read_text("utf-8"))
+    
+    # Загружаем транскрипт
+    try:
+        out["transcript"] = json.loads(transcript.read_text("utf-8"))
+    except Exception as e:
+        return JSONResponse({"error": f"transcript_read_error: {str(e)}"}, status_code=500)
+    
+    # Загружаем саммари, если оно готово
     if summary.exists():
-        out["summary"] = json.loads(summary.read_text("utf-8"))
+        try:
+            summary_data = json.loads(summary.read_text("utf-8"))
+            out["summary"] = summary_data
+        except Exception as e:
+            # Если саммари повреждено, возвращаем только транскрипт
+            out["summary_error"] = f"summary_read_error: {str(e)}"
+    
     return out
+
+@app.get("/history")
+def get_history(_auth=Depends(require_auth)):
+    """Получение истории всех задач с их статусами и результатами"""
+    jobs_dir_path = DATA_DIR / "jobs"
+    if not jobs_dir_path.exists():
+        return {"jobs": []}
+    
+    jobs = []
+    for job_dir in jobs_dir_path.iterdir():
+        if not job_dir.is_dir():
+            continue
+            
+        job_id = job_dir.name
+        meta_file = job_dir / "meta.json"
+        transcript_file = job_dir / "transcript.json"
+        summary_file = job_dir / "summary.json"
+        
+        job_info = {
+            "job_id": job_id,
+            "status": "unknown"
+        }
+        
+        # Определяем статус
+        if summary_file.exists():
+            job_info["status"] = "done"
+        elif transcript_file.exists():
+            job_info["status"] = "transcribed_waiting_summary"
+        else:
+            job_info["status"] = "processing"
+        
+        # Загружаем метаданные
+        if meta_file.exists():
+            try:
+                meta = json.loads(meta_file.read_text("utf-8"))
+                job_info.update(meta)
+            except:
+                job_info["filename"] = "unknown"
+                job_info["language"] = "unknown"
+        
+        # Добавляем информацию о файлах
+        job_info["has_transcript"] = transcript_file.exists()
+        job_info["has_summary"] = summary_file.exists()
+        
+        # Добавляем размеры файлов
+        if transcript_file.exists():
+            job_info["transcript_size"] = transcript_file.stat().st_size
+        if summary_file.exists():
+            job_info["summary_size"] = summary_file.stat().st_size
+        
+        # Добавляем время создания (из имени папки или метаданных)
+        try:
+            # Пытаемся извлечь время из UUID
+            import time
+            timestamp = int(job_id.split('-')[0], 16) / 10000000 - 11644473600
+            job_info["created_at"] = timestamp
+        except:
+            job_info["created_at"] = None
+        
+        jobs.append(job_info)
+    
+    # Сортируем по времени создания (новые сначала)
+    jobs.sort(key=lambda x: x.get("created_at", 0) or 0, reverse=True)
+    
+    return {"jobs": jobs}
+
+@app.get("/history/{job_id}")
+def get_job_history(job_id: str, _auth=Depends(require_auth)):
+    """Получение детальной информации о конкретной задаче"""
+    jdir = jobs_dir(job_id)
+    if not jdir.exists():
+        raise HTTPException(404, "job not found")
+    
+    job_info = {"job_id": job_id}
+    
+    # Загружаем метаданные
+    meta_file = jdir / "meta.json"
+    if meta_file.exists():
+        try:
+            meta = json.loads(meta_file.read_text("utf-8"))
+            job_info.update(meta)
+        except:
+            pass
+    
+    # Загружаем транскрипт
+    transcript_file = jdir / "transcript.json"
+    if transcript_file.exists():
+        try:
+            transcript = json.loads(transcript_file.read_text("utf-8"))
+            job_info["transcript"] = transcript
+        except:
+            job_info["transcript_error"] = "Failed to read transcript"
+    
+    # Загружаем саммари
+    summary_file = jdir / "summary.json"
+    if summary_file.exists():
+        try:
+            summary = json.loads(summary_file.read_text("utf-8"))
+            job_info["summary"] = summary
+        except:
+            job_info["summary_error"] = "Failed to read summary"
+    
+    # Определяем статус
+    if summary_file.exists():
+        job_info["status"] = "done"
+    elif transcript_file.exists():
+        job_info["status"] = "transcribed_waiting_summary"
+    else:
+        job_info["status"] = "processing"
+    
+    return job_info
+
+@app.delete("/history/{job_id}")
+def delete_job(job_id: str, _auth=Depends(require_auth)):
+    """Удаление задачи и всех связанных файлов"""
+    jdir = jobs_dir(job_id)
+    if not jdir.exists():
+        raise HTTPException(404, "job not found")
+    
+    try:
+        import shutil
+        shutil.rmtree(jdir)
+        return {"message": "Job deleted successfully"}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to delete job: {str(e)}")

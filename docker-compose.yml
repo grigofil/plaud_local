@@ -49,12 +49,14 @@ services:
       - WHISPER_MODEL=${WHISPER_MODEL:-medium}
       - WHISPER_DEVICE=${WHISPER_DEVICE:-cpu}
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
-      - PYTHONPATH=/tasks
+      - WHISPER_FAST_MODE=${WHISPER_FAST_MODE:-false}
+      - TRANSCRIBE_TIMEOUT=${TRANSCRIBE_TIMEOUT:-600}
+      - PYTHONPATH=/app:/tasks
     volumes:
-      - ./tasks:/tasks
+      - ./tasks:/app/tasks
       - ./data:/data
     depends_on: [redis]
-    command: sh -c "rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
+    command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
 
   worker_summarize:
     build: ./workers/summarize
@@ -64,9 +66,9 @@ services:
       - DATA_DIR=/data
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
-      - PYTHONPATH=/tasks
+      - PYTHONPATH=/app:/tasks
     volumes:
-      - ./tasks:/tasks
+      - ./tasks:/app/tasks
       - ./data:/data
     depends_on: [redis]
-    command: sh -c "rq worker -u ${REDIS_URL:-redis://redis:6379} sum"
+    command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} sum"
