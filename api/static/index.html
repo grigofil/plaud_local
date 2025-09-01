@@ -176,9 +176,35 @@
         </div>
       </div>
       <div class="toolbar">
+        <button id="loginBtn" class="btn btn-ghost">🔑 Войти</button>
         <button id="helpBtn" class="btn btn-ghost">❓ Подсказки</button>
         <button id="themeToggle" class="btn btn-icon" title="Сменить тему" aria-label="Сменить тему">🌞</button>
       </div>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="loginModal" class="modal-overlay" style="display:none">
+    <div class="modal-card" style="max-width:400px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px dashed var(--border);padding-bottom:12px">
+        <h2 style="margin:0">🔑 Вход в систему</h2>
+        <button class="btn btn-icon" onclick="closeLoginModal()">✖</button>
+      </div>
+      <form id="loginForm" onsubmit="return handleLogin(event)">
+        <div style="margin-bottom:12px">
+          <label for="loginUsername" style="display:block;margin-bottom:4px;font-weight:600">Имя пользователя</label>
+          <input id="loginUsername" type="text" required style="width:100%;box-sizing:border-box" placeholder="Введите имя пользователя">
+        </div>
+        <div style="margin-bottom:16px">
+          <label for="loginPassword" style="display:block;margin-bottom:4px;font-weight:600">Пароль</label>
+          <input id="loginPassword" type="password" required style="width:100%;box-sizing:border-box" placeholder="Введите пароль">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+          <button type="submit" class="btn btn-primary" style="flex:1">Войти</button>
+          <button type="button" class="btn btn-ghost" onclick="closeLoginModal()">Отмена</button>
+        </div>
+      </form>
+      <div id="loginError" style="color:var(--danger);margin-top:12px;display:none;font-size:14px"></div>
     </div>
   </div>
 
@@ -313,10 +339,90 @@
     setTheme(newTheme);
   };
 
+  // Login button handler
+  $('#loginBtn').onclick = () => {
+    console.log(`Login button clicked`);
+    openLoginModal();
+  };
+
   helpBtn.onclick = () => {
     console.log(`Help button clicked`);
     showNotification('Сочетания клавиш: R — запись, U — выбрать файл, H — история. Можно перетащить файл в область загрузки.', 'info');
   };
+
+  // Login modal functions
+  function openLoginModal() {
+    console.log(`Opening login modal`);
+    $('#loginModal').style.display = 'flex';
+    $('#loginUsername').focus();
+  }
+
+  function closeLoginModal() {
+    console.log(`Closing login modal`);
+    $('#loginModal').style.display = 'none';
+    $('#loginError').style.display = 'none';
+    $('#loginError').textContent = '';
+    $('#loginForm').reset();
+  }
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    console.log(`Handling login form submission`);
+    
+    const username = $('#loginUsername').value.trim();
+    const password = $('#loginPassword').value;
+    
+    if (!username || !password) {
+      showNotification('⚠️ Заполните все поля', 'warn');
+      return false;
+    }
+    
+    const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    
+    try {
+      showNotification('🔐 Выполняется вход...', 'info');
+      const response = await fetch(`${apiBase}/auth/login`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Login successful:', data);
+        
+        // Save the JWT token
+        localStorage.setItem('plaud_jwt_token', data.access_token);
+        localStorage.setItem('plaud_username', data.username);
+        
+        // Update API key field with JWT token
+        $('#apiKey').value = data.access_token;
+        updateKeyStatus('Вход выполнен', 'ok');
+        
+        closeLoginModal();
+        showNotification(`✅ Добро пожаловать, ${data.username}!`, 'success');
+        
+        // Check auth to verify token works
+        await checkAuth();
+        
+        return true;
+      } else {
+        const errorData = await response.json().catch(() => ({ detail: 'Ошибка сервера' }));
+        $('#loginError').textContent = errorData.detail || 'Ошибка входа';
+        $('#loginError').style.display = 'block';
+        showNotification('❌ Ошибка входа: ' + (errorData.detail || 'Неверные данные'), 'error');
+        return false;
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      $('#loginError').textContent = 'Ошибка соединения';
+      $('#loginError').style.display = 'block';
+      showNotification('🌐 Ошибка соединения с сервером', 'error');
+      return false;
+    }
+  }
 
   // API base default current origin
   apiBaseInput.value = `${location.protocol}//${location.host}`;
@@ -336,39 +442,88 @@
   // Auth check
   async function checkAuth(){
     console.log(`checkAuth called`);
-    const apiKey = $('#apiKey').value; 
-    if (!apiKey) { 
-      console.log(`No API key provided`);
-      updateKeyStatus('Введите API ключ', 'warn'); 
-      return false; 
+    let token = localStorage.getItem('plaud_jwt_token');
+    const apiKey = $('#apiKey').value;
+    
+    // Use JWT token if available, otherwise use API key from input
+    const authToken = token || apiKey;
+    if (!authToken) {
+      console.log(`No authentication token provided`);
+      updateKeyStatus('Введите API ключ или войдите', 'warn');
+      return false;
     }
     try {
       const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
       console.log(`Checking auth with API base: ${apiBase}`);
-      const response = await fetch(`${apiBase}/auth/check`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-      if (response.ok) { 
-        await response.json(); 
+      const response = await fetch(`${apiBase}/auth/check`, { headers: { 'Authorization': `Bearer ${authToken}` } });
+      if (response.ok) {
+        await response.json();
         console.log(`Auth successful`);
-        updateKeyStatus('Авторизация успешна', 'ok'); 
-        showNotification('🔐 Авторизация успешна','success'); 
-        return true; 
+        updateKeyStatus('Авторизация успешна', 'ok');
+        showNotification('🔐 Авторизация успешна','success');
+        
+        // Update UI based on auth status
+        updateAuthUI();
+        
+        return true;
       }
       console.log(`Auth failed: HTTP ${response.status}`);
-      updateKeyStatus('Ошибка авторизации','warn'); 
-      showNotification('❌ Ошибка авторизации','error'); 
+      updateKeyStatus('Ошибка авторизации','warn');
+      showNotification('❌ Ошибка авторизации','error');
+      
+      // If JWT token is invalid, clear it
+      if (token) {
+        localStorage.removeItem('plaud_jwt_token');
+        localStorage.removeItem('plaud_username');
+        updateAuthUI();
+      }
+      
       return false;
-    } catch (e) { 
+    } catch (e) {
       console.error(`Auth error:`, e);
-      updateKeyStatus('Ошибка соединения','warn'); 
-      showNotification('🌐 Нет соединения с сервером','error'); 
-      return false; 
+      updateKeyStatus('Ошибка соединения','warn');
+      showNotification('🌐 Нет соединения с сервером','error');
+      return false;
     }
   }
-  function updateKeyStatus(msg, type){ 
-    console.log(`updateKeyStatus: ${msg} (${type})`); 
-    const el=$('#keyStatus'); 
-    el.textContent=msg; 
-    el.className = type==='ok' ? 'ok' : 'warn'; 
+  function updateKeyStatus(msg, type){
+    console.log(`updateKeyStatus: ${msg} (${type})`);
+    const el=$('#keyStatus');
+    el.textContent=msg;
+    el.className = type==='ok' ? 'ok' : 'warn';
+  }
+
+  // Update UI based on authentication status
+  function updateAuthUI() {
+    const token = localStorage.getItem('plaud_jwt_token');
+    const username = localStorage.getItem('plaud_username');
+    const loginBtn = $('#loginBtn');
+    
+    if (token && username) {
+      // User is logged in
+      loginBtn.textContent = `👤 ${username}`;
+      loginBtn.title = 'Выйти из системы';
+      loginBtn.onclick = handleLogout;
+    } else {
+      // User is not logged in
+      loginBtn.textContent = '🔑 Войти';
+      loginBtn.title = 'Войти в систему';
+      loginBtn.onclick = () => {
+        console.log(`Login button clicked`);
+        openLoginModal();
+      };
+    }
+  }
+
+  // Logout function
+  function handleLogout() {
+    console.log(`Logout initiated`);
+    localStorage.removeItem('plaud_jwt_token');
+    localStorage.removeItem('plaud_username');
+    $('#apiKey').value = '';
+    updateKeyStatus('Вы вышли из системы', 'warn');
+    showNotification('👋 До свидания!', 'info');
+    updateAuthUI();
   }
 
   // ========== Microphones ==========
@@ -1205,6 +1360,9 @@
     modal.appendChild(card); document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
+
+  // Initialize auth UI on page load
+  updateAuthUI();
 })();
 </script>
 </body>
