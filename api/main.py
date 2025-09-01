@@ -1,16 +1,22 @@
 import os, uuid, shutil, json
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Depends, Header, Form
 from fastapi.responses import JSONResponse
 from redis import Redis
 from rq import Queue
 import httpx
+from typing import Optional
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from fastapi import Depends, Header
 import secrets
+from sqlalchemy.orm import Session
+
+# Import our modules
+from .database import get_db, init_db
+from .models import User
+from .auth import verify_password, get_password_hash, create_access_token, decode_access_token
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 DATA_DIR  = Path(os.getenv("DATA_DIR", "/data"))
@@ -18,10 +24,11 @@ LANG_DEFAULT = "ru"
 API_TOKENS = {t.strip() for t in os.getenv("API_AUTH_TOKEN", "").split(",") if t.strip()}
 TRANSCRIBE_SERVER_URL = os.getenv("TRANSCRIBE_SERVER_URL", "http://worker_transcribe:8002")
 
-def require_auth(authorization: str = Header(default=None), x_api_key: str = Header(default=None)):
+def require_auth(authorization: str = Header(default=None), x_api_key: str = Header(default=None), db: Session = Depends(get_db)):
     """
     Принимаем либо Authorization: Bearer <token>, либо X-API-Key: <token>.
     Если переменная окружения API_AUTH_TOKEN не задана — auth выключен.
+    Также поддерживает JWT токены для пользовательской авторизации.
     """
     if not API_TOKENS:  # auth disabled
         return
@@ -31,12 +38,25 @@ def require_auth(authorization: str = Header(default=None), x_api_key: str = Hea
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     
-    # 1) Authorization: Bearer ...
+    # 1) Authorization: Bearer ... (JWT или старый токен)
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1].strip()
+        
+        # Сначала проверяем старый формат токена
         if token in API_TOKENS:
             logger.info(f"Successful Bearer auth for token: {token[:8]}...")
             return
+        
+        # Если не старый токен, проверяем JWT
+        payload = decode_access_token(token)
+        if payload and "sub" in payload:
+            username = payload.get("sub")
+            user = db.query(User).filter(User.username == username).first()
+            if user and user.is_active:
+                logger.info(f"Successful JWT auth for user: {username}")
+                return
+            else:
+                logger.warning(f"Invalid JWT token for user: {username}")
         else:
             logger.warning(f"Invalid Bearer token: {token[:8]}...")
     
@@ -52,11 +72,15 @@ def require_auth(authorization: str = Header(default=None), x_api_key: str = Hea
     logger.error("Unauthorized access attempt")
     
     # иначе — 401
-    from fastapi import HTTPException
     raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 app = FastAPI(title="Whisper+DeepSeek API (variant B)")
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,6 +137,103 @@ def enqueue_asr(job_id: str, audio_path: str, language: str):
 @app.get("/healthz")
 def healthz(_auth=Depends(require_auth)):
     return {"status": "ok"}
+
+# New authentication endpoints
+@app.post("/auth/register")
+async def register_user(
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Регистрация нового пользователя"""
+    # Check if user already exists
+    existing_user = db.query(User).filter(
+        (User.username == username) | (User.email == email)
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Пользователь с таким именем или email уже существует"
+        )
+    
+    # Hash password
+    hashed_password = get_password_hash(password)
+    
+    # Create new user
+    new_user = User(
+        username=username,
+        email=email,
+        hashed_password=hashed_password
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {
+        "message": "Пользователь успешно зарегистрирован",
+        "user_id": new_user.id,
+        "username": new_user.username
+    }
+
+@app.post("/auth/login")
+async def login_user(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Аутентификация пользователя"""
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Неверное имя пользователя или пароль"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="Пользователь заблокирован"
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.username})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "username": user.username
+    }
+
+@app.get("/auth/me")
+async def get_current_user(
+    current_user: dict = Depends(require_auth),
+    db: Session = Depends(get_db)
+):
+    """Получение информации о текущем пользователе"""
+    # Since require_auth already validates the token, we can get user info
+    # For JWT tokens, we need to extract username from token
+    authorization: str = Header(default=None)
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+        payload = decode_access_token(token)
+        if payload and "sub" in payload:
+            username = payload.get("sub")
+            user = db.query(User).filter(User.username == username).first()
+            if user:
+                return {
+                    "user_id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "is_active": user.is_active,
+                    "created_at": user.created_at
+                }
+    
+    raise HTTPException(status_code=401, detail="Не удалось получить информацию о пользователе")
 
 @app.get("/auth/check")
 def check_auth(_auth=Depends(require_auth)):
