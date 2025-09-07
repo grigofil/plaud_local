@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Отладка аутентификации</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        .status.warning { background-color: #fff3cd; color: #856404; }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .form-group { margin: 15px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        .hidden { display: none; }
+        .token-display {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+        .debug-info {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .step {
+            border-left: 4px solid #007bff;
+            padding-left: 15px;
+            margin: 10px 0;
+        }
+        .step.error { border-left-color: #dc3545; }
+        .step.success { border-left-color: #28a745; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Отладка аутентификации</h1>
+    
+    <div class="container">
+        <h2>Информация о сервере</h2>
+        <div id="serverInfo" class="debug-info">Проверка...</div>
+    </div>
+
+    <div class="container">
+        <h2>Пошаговая отладка входа</h2>
+    <form id="loginForm">
+        <div class="form-group">
+            <label for="username">Имя пользователя:</label>
+                <input type="text" id="username" name="username" value="testuser" required>
+        </div>
+        <div class="form-group">
+            <label for="password">Пароль:</label>
+                <input type="password" id="password" name="password" value="testpass123" required>
+        </div>
+            <button type="submit">🔍 Отладить вход</button>
+            <button type="button" id="clearLogs">🗑️ Очистить логи</button>
+    </form>
+    </div>
+
+    <div class="container">
+        <h2>Результаты отладки</h2>
+        <div id="debugResults"></div>
+    </div>
+
+    <div class="container">
+        <h2>Текущее состояние</h2>
+        <div id="currentState" class="debug-info"></div>
+    </div>
+
+    <div class="container">
+        <h2>Детальные логи</h2>
+        <div id="detailedLogs" class="debug-info"></div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        let debugStep = 0;
+        
+        // Логирование с деталями
+        function log(message, type = 'info', details = null) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = {
+                timestamp,
+                message,
+                type,
+                details
+            };
+            
+            // Добавляем в детальные логи
+            const logsDiv = document.getElementById('detailedLogs');
+            const logLine = `[${timestamp}] ${type.toUpperCase()}: ${message}`;
+            if (details) {
+                logLine += `\nДетали: ${JSON.stringify(details, null, 2)}`;
+            }
+            logsDiv.textContent += logLine + '\n\n';
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            
+            console.log(`[${timestamp}] ${type.toUpperCase()}:`, message, details || '');
+        }
+
+        // Добавление шага отладки
+        function addDebugStep(message, type = 'info', details = null) {
+            debugStep++;
+            const resultsDiv = document.getElementById('debugResults');
+            const stepDiv = document.createElement('div');
+            stepDiv.className = `step ${type}`;
+            stepDiv.innerHTML = `
+                <strong>Шаг ${debugStep}:</strong> ${message}
+                ${details ? `<div class="debug-info">${JSON.stringify(details, null, 2)}</div>` : ''}
+            `;
+            resultsDiv.appendChild(stepDiv);
+            log(`Шаг ${debugStep}: ${message}`, type, details);
+        }
+
+        // Проверка доступности сервера
+        async function checkServer() {
+            addDebugStep('Проверка доступности сервера', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/healthz`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer test-token'
+                    }
+                });
+                
+                if (response.status === 401) {
+                    addDebugStep('Сервер доступен, требует авторизации', 'success', {
+                        status: response.status,
+                        statusText: response.statusText
+                    });
+                    return true;
+                } else {
+                    addDebugStep('Сервер доступен, но неожиданный ответ', 'warning', {
+                        status: response.status,
+                        statusText: response.statusText
+                    });
+                    return true;
+                }
+            } catch (error) {
+                addDebugStep('Сервер недоступен', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return false;
+            }
+        }
+
+        // Проверка существования пользователя
+        async function checkUserExists(username) {
+            addDebugStep(`Проверка существования пользователя: ${username}`, 'info');
+            
+            try {
+                // Попробуем войти с неверным паролем
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('password', 'wrong-password');
+
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.status === 401) {
+                    const errorData = await response.json().catch(() => ({}));
+                    if (errorData.detail && errorData.detail.includes('Неверное имя пользователя')) {
+                        addDebugStep('Пользователь не существует', 'error', errorData);
+                        return false;
+                    } else {
+                        addDebugStep('Пользователь существует, но пароль неверный', 'success', errorData);
+                        return true;
+                    }
+                } else {
+                    addDebugStep('Неожиданный ответ при проверке пользователя', 'warning', {
+                        status: response.status,
+                        statusText: response.statusText
+                    });
+                    return true;
+                }
+            } catch (error) {
+                addDebugStep('Ошибка при проверке пользователя', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return false;
+            }
+        }
+
+        // Регистрация пользователя
+        async function registerUser(username, email, password) {
+            addDebugStep(`Регистрация пользователя: ${username}`, 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('email', email);
+                formData.append('password', password);
+
+                const response = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const responseData = await response.json().catch(() => ({}));
+
+                if (response.ok) {
+                    addDebugStep('Регистрация успешна', 'success', responseData);
+                    return true;
+                } else if (response.status === 400 && responseData.detail && responseData.detail.includes('уже существует')) {
+                    addDebugStep('Пользователь уже существует', 'info', responseData);
+                    return true;
+                } else {
+                    addDebugStep('Ошибка регистрации', 'error', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: responseData
+                    });
+                    return false;
+                }
+            } catch (error) {
+                addDebugStep('Ошибка соединения при регистрации', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return false;
+            }
+        }
+        
+        // Вход в систему
+        async function loginUser(username, password) {
+            addDebugStep(`Попытка входа: ${username}`, 'info');
+            
+            try {
+                const formData = new FormData();
+                formData.append('username', username);
+                formData.append('password', password);
+                
+                log('Отправка запроса на вход', 'info', {
+                    url: `${API_BASE}/auth/login`,
+                    method: 'POST',
+                    username: username,
+                    passwordLength: password.length
+                });
+
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                log('Получен ответ от сервера', 'info', {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+
+                const responseData = await response.json().catch(() => ({}));
+                
+                if (response.ok) {
+                    addDebugStep('Вход успешен', 'success', {
+                        username: responseData.username,
+                        tokenLength: responseData.access_token ? responseData.access_token.length : 0,
+                        tokenType: responseData.token_type
+                    });
+                    
+                    // Сохраняем токен
+                    localStorage.setItem('plaud_jwt_token', responseData.access_token);
+                    localStorage.setItem('plaud_username', responseData.username);
+                    
+                    log('Токен сохранен в localStorage', 'success', {
+                        token: responseData.access_token.substring(0, 20) + '...',
+                        username: responseData.username
+                    });
+                    
+                    return responseData;
+                } else {
+                    addDebugStep('Ошибка входа', 'error', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: responseData
+                    });
+                    return null;
+                }
+            } catch (error) {
+                addDebugStep('Ошибка соединения при входе', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return null;
+            }
+        }
+
+        // Проверка авторизации
+        async function verifyAuth(token) {
+            addDebugStep('Проверка авторизации с токеном', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/check`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const responseData = await response.json().catch(() => ({}));
+                
+                if (response.ok) {
+                    addDebugStep('Проверка авторизации успешна', 'success', responseData);
+                    return true;
+                } else {
+                    addDebugStep('Проверка авторизации не удалась', 'error', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: responseData
+                    });
+                    return false;
+                }
+            } catch (error) {
+                addDebugStep('Ошибка при проверке авторизации', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return false;
+            }
+        }
+        
+        // Получение информации о пользователе
+        async function getUserInfo(token) {
+            addDebugStep('Получение информации о пользователе', 'info');
+            
+            try {
+                const response = await fetch(`${API_BASE}/auth/me`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+
+                const responseData = await response.json().catch(() => ({}));
+                
+                if (response.ok) {
+                    addDebugStep('Информация о пользователе получена', 'success', responseData);
+                    return responseData;
+                } else {
+                    addDebugStep('Ошибка получения информации о пользователе', 'error', {
+                        status: response.status,
+                        statusText: response.statusText,
+                        data: responseData
+                    });
+                    return null;
+                }
+            } catch (error) {
+                addDebugStep('Ошибка соединения при получении информации о пользователе', 'error', {
+                    error: error.message,
+                    type: error.name
+                });
+                return null;
+            }
+        }
+
+        // Обновление текущего состояния
+        function updateCurrentState() {
+            const token = localStorage.getItem('plaud_jwt_token');
+            const username = localStorage.getItem('plaud_username');
+            
+            const state = {
+                localStorage: {
+                    token: token ? token.substring(0, 20) + '...' : null,
+                    username: username
+                },
+                timestamp: new Date().toISOString()
+            };
+            
+            document.getElementById('currentState').textContent = JSON.stringify(state, null, 2);
+        }
+
+        // Основная функция отладки
+        async function debugLogin(username, password) {
+            // Очищаем предыдущие результаты
+            document.getElementById('debugResults').innerHTML = '';
+            document.getElementById('detailedLogs').textContent = '';
+            debugStep = 0;
+            
+            log('Начало отладки входа в систему', 'info');
+            
+            // Шаг 1: Проверка сервера
+            const serverOk = await checkServer();
+            if (!serverOk) {
+                addDebugStep('Отладка прервана: сервер недоступен', 'error');
+                return;
+            }
+            
+            // Шаг 2: Проверка/создание пользователя
+            const userExists = await checkUserExists(username);
+            if (!userExists) {
+                const email = `${username}@example.com`;
+                const registered = await registerUser(username, email, password);
+                if (!registered) {
+                    addDebugStep('Отладка прервана: не удалось создать пользователя', 'error');
+                    return;
+                }
+            }
+            
+            // Шаг 3: Вход в систему
+            const loginResult = await loginUser(username, password);
+            if (!loginResult) {
+                addDebugStep('Отладка прервана: вход не удался', 'error');
+                return;
+            }
+            
+            // Шаг 4: Проверка авторизации
+            const authOk = await verifyAuth(loginResult.access_token);
+            if (!authOk) {
+                addDebugStep('Отладка прервана: проверка авторизации не удалась', 'error');
+                return;
+            }
+            
+            // Шаг 5: Получение информации о пользователе
+            const userInfo = await getUserInfo(loginResult.access_token);
+            if (!userInfo) {
+                addDebugStep('Отладка прервана: не удалось получить информацию о пользователе', 'error');
+                return;
+            }
+            
+            addDebugStep('Отладка завершена успешно', 'success', {
+                finalUserInfo: userInfo
+            });
+            
+            updateCurrentState();
+        }
+
+        // Обработчики событий
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            await debugLogin(username, password);
+        });
+
+        document.getElementById('clearLogs').addEventListener('click', () => {
+            document.getElementById('debugResults').innerHTML = '';
+            document.getElementById('detailedLogs').textContent = '';
+            debugStep = 0;
+        });
+        
+        // Инициализация
+        updateCurrentState();
+        checkServer();
+    </script>
+</body>
+</html>
