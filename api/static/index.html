@@ -773,10 +773,20 @@
   // Check if user is already logged in
   const savedToken = localStorage.getItem('plaud_jwt_token');
   const savedUsername = localStorage.getItem('plaud_username');
+  const savedIsAdmin = localStorage.getItem('plaud_is_admin');
+  
+  console.log(`Page load check: token=${!!savedToken}, username=${savedUsername}, isAdmin=${savedIsAdmin}`);
+  
   if (savedToken && savedUsername) { 
     updateKeyStatus('Токен загружен', 'ok'); 
     updateAuthUI(); // Update UI to show logged in state
     showNotification('🔑 Токен загружен', 'success'); 
+    
+    // If we don't have admin status, try to get it
+    if (savedIsAdmin === null) {
+      console.log('Admin status not found, fetching user info...');
+      checkAuth(); // This will fetch admin status
+    }
   }
 
   // Saved mic
@@ -816,7 +826,31 @@
           console.log(`Username mismatch, updating UI: ${currentUsername} -> ${data.username}`);
           updateAuthUI();
         } else {
-          console.log(`Username matches, UI already up to date: ${data.username}`);
+          // Even if username matches, we should check admin status
+          console.log(`Username matches, checking admin status for: ${data.username}`);
+          try {
+            const userInfoResponse = await fetch(`${apiBase}/auth/me`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (userInfoResponse.ok) {
+              const userInfo = await userInfoResponse.json();
+              const currentIsAdmin = localStorage.getItem('plaud_is_admin') === 'true';
+              const newIsAdmin = userInfo.is_admin;
+              
+              console.log(`Admin status check: current=${currentIsAdmin}, new=${newIsAdmin}`);
+              
+              if (currentIsAdmin !== newIsAdmin) {
+                console.log(`Admin status changed, updating UI: ${currentIsAdmin} -> ${newIsAdmin}`);
+                localStorage.setItem('plaud_is_admin', newIsAdmin ? 'true' : 'false');
+                updateAuthUI();
+              } else {
+                console.log(`Admin status unchanged: ${newIsAdmin}`);
+              }
+            }
+          } catch (error) {
+            console.warn('Failed to check admin status:', error);
+          }
         }
         
         return true;
@@ -903,6 +937,7 @@
     
     console.log(`updateAuthUI: token=${!!token}, username=${username}, isAdmin=${isAdmin}`);
     console.log(`Current button text: "${loginBtn.textContent}"`);
+    console.log(`Users button current display: "${usersBtn.style.display}"`);
     
     if (token && username) {
       // User is logged in
@@ -912,9 +947,10 @@
       loginBtn.onclick = handleLogout;
       
       // Показываем кнопку управления пользователями только администраторам
-      usersBtn.style.display = isAdmin ? 'block' : 'none';
+      const shouldShowUsersBtn = isAdmin;
+      usersBtn.style.display = shouldShowUsersBtn ? 'block' : 'none';
       
-      console.log(`UI updated: user logged in as ${username}, isAdmin=${isAdmin}, button text: "${newText}"`);
+      console.log(`UI updated: user logged in as ${username}, isAdmin=${isAdmin}, shouldShowUsersBtn=${shouldShowUsersBtn}, usersBtn.display="${usersBtn.style.display}"`);
     } else {
       // User is not logged in
       loginBtn.textContent = '🔑 Войти';
@@ -932,7 +968,7 @@
     
     // Additional verification
     setTimeout(() => {
-      console.log(`UI verification after 100ms: button text="${loginBtn.textContent}", onclick=${typeof loginBtn.onclick}`);
+      console.log(`UI verification after 100ms: button text="${loginBtn.textContent}", onclick=${typeof loginBtn.onclick}, usersBtn.display="${usersBtn.style.display}"`);
     }, 100);
   }
 
@@ -1801,7 +1837,7 @@
     const token = localStorage.getItem('plaud_jwt_token');
     if (token) {
       console.log('Periodic auth check...');
-      checkAuthSilent().then(isValid => {
+      checkAuth().then(isValid => {
         if (!isValid) {
           // Token is invalid, update UI
           updateKeyStatus('Токен истек', 'warn');

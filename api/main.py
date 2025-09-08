@@ -45,7 +45,7 @@ def require_auth(authorization: str = Header(default=None), db: Session = Depend
         user = db.query(User).filter(User.username == username).first()
         if user and user.is_active:
             logger.info(f"Successful JWT auth for user: {username}")
-            return
+            return user
         else:
             logger.warning(f"Invalid JWT token for user: {username}")
     else:
@@ -62,8 +62,10 @@ def require_admin(authorization: str = Header(default=None), db: Session = Depen
     Проверяет JWT токен и права администратора.
     Возвращает объект пользователя-администратора.
     """
+    # require_auth уже проверяет авторизацию и возвращает пользователя или выбрасывает исключение
     user = require_auth(authorization, db)
     
+    # Если мы дошли до этой точки, значит пользователь авторизован
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="Admin access required")
     
@@ -508,21 +510,25 @@ def delete_job(job_id: str, _auth=Depends(require_auth)):
 @app.get("/users")
 def list_users(admin_user=Depends(require_admin), db: Session = Depends(get_db)):
     """Получение списка всех пользователей (только для администраторов)"""
-    users = db.query(User).all()
-    return {
-        "users": [
-            {
-                "id": user.id,
-                "username": user.username,
-                "email": user.email,
-                "is_active": user.is_active,
-                "is_admin": user.is_admin,
-                "created_at": user.created_at,
-                "updated_at": user.updated_at
-            }
-            for user in users
-        ]
-    }
+    try:
+        users = db.query(User).all()
+        return {
+            "users": [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "is_active": user.is_active,
+                    "is_admin": user.is_admin,
+                    "created_at": user.created_at
+                    # Временно убираем updated_at, так как поле может отсутствовать в базе данных
+                    # "updated_at": user.updated_at
+                }
+                for user in users
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
 @app.delete("/users/{user_id}")
 def delete_user(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
