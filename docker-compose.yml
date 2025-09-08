@@ -12,10 +12,10 @@ services:
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - DATA_DIR=/data
-      - PYTHONPATH=/app:/tasks
+      - PYTHONPATH=/app/src
     volumes:
-      - ./api:/app/api
-      - ./tasks:/app/tasks
+      - ./src:/app/src
+      - ./api/static:/app/api/static
       - ./data:/app/data
     ports:
       - "8001:8001"
@@ -23,25 +23,23 @@ services:
     command: python main.py
 
   api:
-    build: ./api
+    build: .
     env_file: .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - DATA_DIR=/data
-      - PYTHONPATH=/app:/tasks
+      - PYTHONPATH=/app/src
     volumes:
-      - ./api:/app
-      - ./tasks:/tasks
-      - ./data:/data
+      - ./src:/app/src
+      - ./api/static:/app/api/static
+      - ./data:/app/data
     ports:
       - "8000:8000"
     depends_on: [redis]
-    command: >
-      uvicorn main:app
-      --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
+    command: python api_main.py
 
   worker_transcribe:
-    build: ./workers/transcribe
+    build: .
     env_file: .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
@@ -51,27 +49,26 @@ services:
       - WHISPER_COMPUTE_TYPE=${WHISPER_COMPUTE_TYPE:-int8}
       - WHISPER_FAST_MODE=${WHISPER_FAST_MODE:-false}
       - TRANSCRIBE_SERVER_PORT=${TRANSCRIBE_SERVER_PORT:-8002}
-      - PYTHONPATH=/app:/tasks
+      - PYTHONPATH=/app/src
     volumes:
-      - ./tasks:/app/tasks
+      - ./src:/app/src
       - ./data:/data
     ports:
       - "8002:8002"
     depends_on: [redis]
-    # Теперь запускаем HTTP сервер вместо RQ worker
-    # command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
+    command: python transcribe_server.py
 
   worker_summarize:
-    build: ./workers/summarize
+    build: .
     env_file: .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
       - DATA_DIR=/data
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
       - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
-      - PYTHONPATH=/app:/tasks
+      - PYTHONPATH=/app/src
     volumes:
-      - ./tasks:/app/tasks
+      - ./src:/app/src
       - ./data:/data
     depends_on: [redis]
-    command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} sum"
+    command: sh -c "cd /app && PYTHONPATH=/app/src rq worker -u ${REDIS_URL:-redis://redis:6379} sum"

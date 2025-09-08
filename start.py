@@ -106,12 +106,10 @@ def main():
         print("   • Основное приложение: http://localhost:8001")
         print("   • API: http://localhost:8000")
         print("   • Веб-клиент: http://localhost:8000/app")
-        print("\n🔑 Для тестирования авторизации:")
-        print("   python test_auth.py http://localhost:8001 your_token_here")
+        print("   • Сервер транскрибации: http://localhost:8002")
     else:
         print("\n❌ Не удалось запустить сервисы")
         sys.exit(1)
 
 if __name__ == "__main__":
     main()
-

@@ -1,11 +1,26 @@
+# Core dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
 python-multipart==0.0.6
-redis==5.0.7
-rq==1.16.2
-requests==2.32.3
-httpx==0.25.2
+
+# Database
 sqlalchemy==2.0.28
+
+# Authentication
 passlib[bcrypt]==1.7.4
 python-jose[cryptography]==3.3.0
-python-multipart==0.0.6
+
+# Redis and queue
+redis==5.0.7
+rq==1.16.2
+
+# HTTP clients
+requests==2.32.3
+httpx==0.25.2
+
+# Audio processing
+faster-whisper==0.10.0
+
+# Utilities
+python-dotenv==1.0.0
+pydantic==2.5.0
