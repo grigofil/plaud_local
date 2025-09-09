@@ -176,8 +176,54 @@
         </div>
       </div>
       <div class="toolbar">
+        <button id="loginBtn" class="btn btn-ghost">🔑 Войти</button>
+        <button id="usersBtn" class="btn btn-ghost" style="display:none">👥 Пользователи</button>
         <button id="helpBtn" class="btn btn-ghost">❓ Подсказки</button>
         <button id="themeToggle" class="btn btn-icon" title="Сменить тему" aria-label="Сменить тему">🌞</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div id="loginModal" class="modal-overlay" style="display:none">
+    <div class="modal-card" style="max-width:400px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px dashed var(--border);padding-bottom:12px">
+        <h2 style="margin:0">🔑 Вход в систему</h2>
+        <button class="btn btn-icon" id="closeLoginModalBtn">✖</button>
+      </div>
+      <form id="loginForm">
+        <div style="margin-bottom:12px">
+          <label for="loginUsername" style="display:block;margin-bottom:4px;font-weight:600">Имя пользователя</label>
+          <input id="loginUsername" type="text" required style="width:100%;box-sizing:border-box" placeholder="Введите имя пользователя">
+        </div>
+        <div style="margin-bottom:16px">
+          <label for="loginPassword" style="display:block;margin-bottom:4px;font-weight:600">Пароль</label>
+          <input id="loginPassword" type="password" required style="width:100%;box-sizing:border-box" placeholder="Введите пароль">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:space-between;align-items:center">
+          <button type="submit" class="btn btn-primary" style="flex:1">Войти</button>
+          <button type="button" class="btn btn-ghost" id="cancelLoginBtn">Отмена</button>
+        </div>
+      </form>
+      <div id="loginError" style="color:var(--danger);margin-top:12px;display:none;font-size:14px"></div>
+    </div>
+  </div>
+
+  <!-- USERS MANAGEMENT MODAL -->
+  <div id="usersModal" class="modal-overlay" style="display:none">
+    <div class="modal-card" style="max-width:800px;max-height:80vh;overflow-y:auto">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:1px dashed var(--border);padding-bottom:12px">
+        <h2 style="margin:0">👥 Управление пользователями</h2>
+        <button class="btn btn-icon" id="closeUsersModalBtn">✖</button>
+      </div>
+      <div id="usersList" style="margin-bottom:16px">
+        <div style="text-align:center;padding:20px;color:var(--muted)">
+          Загрузка списка пользователей...
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost" id="refreshUsersBtn">🔄 Обновить</button>
+        <button class="btn btn-ghost" id="cancelUsersBtn">Закрыть</button>
       </div>
     </div>
   </div>
@@ -204,10 +250,7 @@
         <select id="lang"><option value="ru" selected>ru</option><option value="en">en</option></select>
       </div>
       <div class="row" style="margin-top:8px">
-        <label>API key:</label>
-        <input id="apiKey" class="mono" style="min-width:320px" placeholder="Bearer token">
-        <button id="saveKey" class="btn">💾 Сохранить</button>
-        <span id="keyStatus" class="muted"></span>
+        <span id="keyStatus" class="muted">Войдите в систему для доступа к API</span>
       </div>
       <div class="muted" style="margin-top:6px">
         По умолчанию берётся текущий origin. Если API на другом хосте/порту — укажи: <span class="mono">http://localhost:8000</span>
@@ -313,10 +356,412 @@
     setTheme(newTheme);
   };
 
+  // Login button handler
+  $('#loginBtn').onclick = () => {
+    console.log(`Login button clicked`);
+    openLoginModal();
+  };
+
+  // Login form handler
+  $('#loginForm').addEventListener('submit', handleLogin);
+  
+  // Close modal handlers
+  $('#closeLoginModalBtn').onclick = closeLoginModal;
+  $('#cancelLoginBtn').onclick = closeLoginModal;
+
+  // Users management button handler
+  $('#usersBtn').onclick = () => {
+    console.log(`Users button clicked`);
+    openUsersModal();
+  };
+
+  // Users modal handlers
+  $('#closeUsersModalBtn').onclick = closeUsersModal;
+  $('#cancelUsersBtn').onclick = closeUsersModal;
+  $('#refreshUsersBtn').onclick = loadUsersList;
+
   helpBtn.onclick = () => {
     console.log(`Help button clicked`);
     showNotification('Сочетания клавиш: R — запись, U — выбрать файл, H — история. Можно перетащить файл в область загрузки.', 'info');
   };
+
+  // Login modal functions
+  function openLoginModal() {
+    console.log(`Opening login modal`);
+    $('#loginModal').style.display = 'flex';
+    $('#loginUsername').focus();
+  }
+
+  function closeLoginModal() {
+    console.log(`Closing login modal`);
+    $('#loginModal').style.display = 'none';
+    $('#loginError').style.display = 'none';
+    $('#loginError').textContent = '';
+    $('#loginForm').reset();
+  }
+
+  // Helper function to get API base URL
+  function getApiBase() {
+    return apiBaseInput.value || `${location.protocol}//${location.host}`;
+  }
+
+  // Users management modal functions
+  function openUsersModal() {
+    console.log(`Opening users modal`);
+    $('#usersModal').style.display = 'flex';
+    loadUsersList();
+  }
+
+  function closeUsersModal() {
+    console.log(`Closing users modal`);
+    $('#usersModal').style.display = 'none';
+  }
+
+  async function loadUsersList() {
+    const usersList = $('#usersList');
+    usersList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">Загрузка списка пользователей...</div>';
+    
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        usersList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger)">❌ Необходима авторизация</div>';
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const users = data.users || [];
+
+      if (users.length === 0) {
+        usersList.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted)">👥 Пользователи не найдены</div>';
+        return;
+      }
+
+      // Создаем HTML для списка пользователей
+      let usersHTML = '<div style="display:grid;gap:12px">';
+      
+      users.forEach(user => {
+        const statusClass = user.is_active ? 'success' : 'warn';
+        const statusText = user.is_active ? 'Активен' : 'Заблокирован';
+        const adminClass = user.is_admin ? 'success' : 'muted';
+        const adminText = user.is_admin ? '👑 Админ' : '👤 Пользователь';
+        const createdDate = new Date(user.created_at).toLocaleDateString('ru-RU');
+        
+        usersHTML += `
+          <div class="card" style="padding:16px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <div>
+                <strong>👤 ${user.username}</strong>
+                <span class="pill ${statusClass}" style="margin-left:8px">${statusText}</span>
+                <span class="pill ${adminClass}" style="margin-left:8px">${adminText}</span>
+              </div>
+              <div style="display:flex;gap:8px">
+                ${user.is_active ? 
+                  `<button onclick="deactivateUser(${user.id})" class="btn btn-danger">🚫 Заблокировать</button>` :
+                  `<button onclick="activateUser(${user.id})" class="btn btn-primary">✅ Активировать</button>`
+                }
+                ${user.is_admin ? 
+                  `<button onclick="removeAdmin(${user.id})" class="btn btn-warn">👤 Убрать админа</button>` :
+                  `<button onclick="makeAdmin(${user.id})" class="btn btn-primary">👑 Сделать админом</button>`
+                }
+                <button onclick="deleteUser(${user.id}, '${user.username}')" class="btn btn-danger">
+                  🗑️ Удалить
+                </button>
+              </div>
+            </div>
+            <div style="color:var(--muted);font-size:14px">
+              📧 ${user.email} • 🆔 ID: ${user.id} • 📅 Создан: ${createdDate}
+            </div>
+          </div>
+        `;
+      });
+      
+      usersHTML += '</div>';
+      usersList.innerHTML = usersHTML;
+      
+    } catch (error) {
+      console.error('Error loading users:', error);
+      usersList.innerHTML = `<div style="text-align:center;padding:20px;color:var(--danger)">❌ Ошибка загрузки: ${error.message}</div>`;
+    }
+  }
+
+  async function deleteUser(userId, username) {
+    if (!confirm(`Вы уверены, что хотите удалить пользователя "${username}"?\n\nЭто действие нельзя отменить!`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        showNotification('❌ Необходима авторизация', 'error');
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users/${userId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showNotification(`✅ Пользователь "${username}" успешно удален`, 'success');
+      loadUsersList(); // Обновляем список
+      
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      showNotification(`❌ Ошибка удаления: ${error.message}`, 'error');
+    }
+  }
+
+  async function deactivateUser(userId) {
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        showNotification('❌ Необходима авторизация', 'error');
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users/${userId}/deactivate`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showNotification(`✅ Пользователь "${result.user.username}" заблокирован`, 'success');
+      loadUsersList(); // Обновляем список
+      
+    } catch (error) {
+      console.error('Error deactivating user:', error);
+      showNotification(`❌ Ошибка блокировки: ${error.message}`, 'error');
+    }
+  }
+
+  async function activateUser(userId) {
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        showNotification('❌ Необходима авторизация', 'error');
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users/${userId}/activate`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showNotification(`✅ Пользователь "${result.user.username}" активирован`, 'success');
+      loadUsersList(); // Обновляем список
+      
+    } catch (error) {
+      console.error('Error activating user:', error);
+      showNotification(`❌ Ошибка активации: ${error.message}`, 'error');
+    }
+  }
+
+  async function makeAdmin(userId) {
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        showNotification('❌ Необходима авторизация', 'error');
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users/${userId}/make-admin`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showNotification(`✅ Пользователь "${result.user.username}" назначен администратором`, 'success');
+      loadUsersList(); // Обновляем список
+      
+    } catch (error) {
+      console.error('Error making admin:', error);
+      showNotification(`❌ Ошибка назначения администратора: ${error.message}`, 'error');
+    }
+  }
+
+  async function removeAdmin(userId) {
+    try {
+      const token = localStorage.getItem('plaud_jwt_token');
+      if (!token) {
+        showNotification('❌ Необходима авторизация', 'error');
+        return;
+      }
+
+      const response = await fetch(`${getApiBase()}/users/${userId}/remove-admin`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const result = await response.json();
+      showNotification(`✅ Права администратора сняты с пользователя "${result.user.username}"`, 'success');
+      loadUsersList(); // Обновляем список
+      
+    } catch (error) {
+      console.error('Error removing admin:', error);
+      showNotification(`❌ Ошибка снятия прав администратора: ${error.message}`, 'error');
+    }
+  }
+
+  // Make functions globally available
+  window.openLoginModal = openLoginModal;
+  window.closeLoginModal = closeLoginModal;
+  window.openUsersModal = openUsersModal;
+  window.closeUsersModal = closeUsersModal;
+  window.deleteUser = deleteUser;
+  window.deactivateUser = deactivateUser;
+  window.activateUser = activateUser;
+  window.makeAdmin = makeAdmin;
+  window.removeAdmin = removeAdmin;
+
+  async function handleLogin(event) {
+    event.preventDefault();
+    console.log(`Handling login form submission`);
+    
+    const username = $('#loginUsername').value.trim();
+    const password = $('#loginPassword').value;
+    
+    console.log(`Login attempt: username="${username}", passwordLength=${password.length}`);
+    
+    if (!username || !password) {
+      console.log(`Login failed: empty fields`);
+      showNotification('⚠️ Заполните все поля', 'warn');
+      return false;
+    }
+    
+    const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
+    console.log(`API Base: ${apiBase}`);
+    
+    const formData = new FormData();
+    formData.append('username', username);
+    formData.append('password', password);
+    
+    try {
+      showNotification('🔐 Выполняется вход...', 'info');
+      console.log(`Sending login request to: ${apiBase}/auth/login`);
+      
+      const response = await fetch(`${apiBase}/auth/login`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      console.log(`Login response: status=${response.status}, statusText=${response.statusText}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Login successful:', data);
+        
+        // Save the JWT token
+        localStorage.setItem('plaud_jwt_token', data.access_token);
+        localStorage.setItem('plaud_username', data.username);
+        
+        console.log('Token saved to localStorage:', {
+          token: data.access_token.substring(0, 20) + '...',
+          username: data.username
+        });
+        
+        // Get user info including admin status
+        try {
+          const userInfoResponse = await fetch(`${apiBase}/auth/me`, {
+            headers: {
+              'Authorization': `Bearer ${data.access_token}`
+            }
+          });
+          
+          if (userInfoResponse.ok) {
+            const userInfo = await userInfoResponse.json();
+            localStorage.setItem('plaud_is_admin', userInfo.is_admin ? 'true' : 'false');
+            console.log('User info saved:', { is_admin: userInfo.is_admin });
+          }
+        } catch (error) {
+          console.warn('Failed to get user info:', error);
+          localStorage.setItem('plaud_is_admin', 'false');
+        }
+        
+        updateKeyStatus('Вход выполнен', 'ok');
+        
+        closeLoginModal();
+        showNotification(`✅ Добро пожаловать, ${data.username}!`, 'success');
+        
+        // Update UI immediately
+        console.log('Updating UI after login...');
+        updateAuthUI();
+        
+        // Check auth to verify token works (but don't update UI again)
+        console.log('Verifying token with server...');
+        const isValid = await checkAuthSilent();
+        console.log('Token verification result:', isValid);
+        
+        return true;
+      } else {
+        console.log(`Login failed: HTTP ${response.status}`);
+        const errorData = await response.json().catch(() => ({ detail: 'Ошибка сервера' }));
+        console.log(`Login error data:`, errorData);
+        
+        $('#loginError').textContent = errorData.detail || 'Ошибка входа';
+        $('#loginError').style.display = 'block';
+        showNotification('❌ Ошибка входа: ' + (errorData.detail || 'Неверные данные'), 'error');
+        return false;
+      }
+    } catch (error) {
+      console.error('Login error:', error);
+      console.error('Error details:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      $('#loginError').textContent = 'Ошибка соединения: ' + error.message;
+      $('#loginError').style.display = 'block';
+      showNotification('🌐 Ошибка соединения с сервером: ' + error.message, 'error');
+      return false;
+    }
+  }
 
   // API base default current origin
   apiBaseInput.value = `${location.protocol}//${location.host}`;
@@ -325,9 +770,24 @@
     showNotification(`🔗 API base: ${apiBaseInput.value}`, 'info');
   };
 
-  // Saved API key
-  const savedKey = localStorage.getItem('plaud_api_key');
-  if (savedKey) { $('#apiKey').value = savedKey; updateKeyStatus('Ключ загружен', 'ok'); showNotification('🔑 API ключ загружен', 'success'); }
+  // Check if user is already logged in
+  const savedToken = localStorage.getItem('plaud_jwt_token');
+  const savedUsername = localStorage.getItem('plaud_username');
+  const savedIsAdmin = localStorage.getItem('plaud_is_admin');
+  
+  console.log(`Page load check: token=${!!savedToken}, username=${savedUsername}, isAdmin=${savedIsAdmin}`);
+  
+  if (savedToken && savedUsername) { 
+    updateKeyStatus('Токен загружен', 'ok'); 
+    updateAuthUI(); // Update UI to show logged in state
+    showNotification('🔑 Токен загружен', 'success'); 
+    
+    // If we don't have admin status, try to get it
+    if (savedIsAdmin === null) {
+      console.log('Admin status not found, fetching user info...');
+      checkAuth(); // This will fetch admin status
+    }
+  }
 
   // Saved mic
   const savedMicId = localStorage.getItem('plaud_selected_mic');
@@ -336,39 +796,191 @@
   // Auth check
   async function checkAuth(){
     console.log(`checkAuth called`);
-    const apiKey = $('#apiKey').value; 
-    if (!apiKey) { 
-      console.log(`No API key provided`);
-      updateKeyStatus('Введите API ключ', 'warn'); 
-      return false; 
+    let token = localStorage.getItem('plaud_jwt_token');
+    
+    if (!token) {
+      console.log(`No JWT token found`);
+      updateKeyStatus('Войдите в систему', 'warn');
+      updateAuthUI();
+      return false;
     }
+    
     try {
       const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
       console.log(`Checking auth with API base: ${apiBase}`);
-      const response = await fetch(`${apiBase}/auth/check`, { headers: { 'Authorization': `Bearer ${apiKey}` } });
-      if (response.ok) { 
-        await response.json(); 
-        console.log(`Auth successful`);
-        updateKeyStatus('Авторизация успешна', 'ok'); 
-        showNotification('🔐 Авторизация успешна','success'); 
-        return true; 
+      
+      // Try to check auth status
+      const response = await fetch(`${apiBase}/auth/check`, { 
+        headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`Auth successful for user: ${data.username}`);
+        updateKeyStatus(`Авторизация успешна (${data.username})`, 'ok');
+        
+        // Update UI based on auth status only if it's not already updated
+        const currentUsername = localStorage.getItem('plaud_username');
+        if (currentUsername !== data.username) {
+          console.log(`Username mismatch, updating UI: ${currentUsername} -> ${data.username}`);
+          updateAuthUI();
+        } else {
+          // Even if username matches, we should check admin status
+          console.log(`Username matches, checking admin status for: ${data.username}`);
+          try {
+            const userInfoResponse = await fetch(`${apiBase}/auth/me`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (userInfoResponse.ok) {
+              const userInfo = await userInfoResponse.json();
+              const currentIsAdmin = localStorage.getItem('plaud_is_admin') === 'true';
+              const newIsAdmin = userInfo.is_admin;
+              
+              console.log(`Admin status check: current=${currentIsAdmin}, new=${newIsAdmin}`);
+              
+              if (currentIsAdmin !== newIsAdmin) {
+                console.log(`Admin status changed, updating UI: ${currentIsAdmin} -> ${newIsAdmin}`);
+                localStorage.setItem('plaud_is_admin', newIsAdmin ? 'true' : 'false');
+                updateAuthUI();
+              } else {
+                console.log(`Admin status unchanged: ${newIsAdmin}`);
+              }
+            }
+          } catch (error) {
+            console.warn('Failed to check admin status:', error);
+          }
+        }
+        
+        return true;
       }
+      
       console.log(`Auth failed: HTTP ${response.status}`);
-      updateKeyStatus('Ошибка авторизации','warn'); 
-      showNotification('❌ Ошибка авторизации','error'); 
+      
+      // If JWT token is invalid, clear it
+      localStorage.removeItem('plaud_jwt_token');
+      localStorage.removeItem('plaud_username');
+      updateKeyStatus('Токен истек', 'warn');
+      showNotification('🔑 Токен авторизации истек. Войдите снова.', 'warn');
+      updateAuthUI();
+      
       return false;
-    } catch (e) { 
+    } catch (e) {
       console.error(`Auth error:`, e);
-      updateKeyStatus('Ошибка соединения','warn'); 
-      showNotification('🌐 Нет соединения с сервером','error'); 
-      return false; 
+      updateKeyStatus('Ошибка соединения','warn');
+      
+      // Don't clear token on connection errors, just show warning
+      if (e.name === 'TypeError' && e.message.includes('fetch')) {
+        showNotification('🌐 Нет соединения с сервером', 'warn');
+      } else {
+        showNotification('❌ Ошибка проверки авторизации', 'error');
+      }
+      
+      return false;
     }
   }
-  function updateKeyStatus(msg, type){ 
-    console.log(`updateKeyStatus: ${msg} (${type})`); 
-    const el=$('#keyStatus'); 
-    el.textContent=msg; 
-    el.className = type==='ok' ? 'ok' : 'warn'; 
+
+  // Silent auth check (doesn't update UI)
+  async function checkAuthSilent(){
+    console.log(`checkAuthSilent called`);
+    let token = localStorage.getItem('plaud_jwt_token');
+    
+    if (!token) {
+      console.log(`No JWT token found in silent check`);
+      return false;
+    }
+    
+    try {
+      const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
+      console.log(`Silent checking auth with API base: ${apiBase}`);
+      
+      // Try to check auth status
+      const response = await fetch(`${apiBase}/auth/check`, { 
+        headers: { 'Authorization': `Bearer ${token}` },
+        method: 'GET'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`Silent auth successful for user: ${data.username}`);
+        return true;
+      }
+      
+      console.log(`Silent auth failed: HTTP ${response.status}`);
+      
+      // If JWT token is invalid, clear it but don't show notifications
+      localStorage.removeItem('plaud_jwt_token');
+      localStorage.removeItem('plaud_username');
+      
+      return false;
+    } catch (e) {
+      console.error(`Silent auth error:`, e);
+      // Don't show notifications or update UI on connection errors
+      return false;
+    }
+  }
+  function updateKeyStatus(msg, type){
+    console.log(`updateKeyStatus: ${msg} (${type})`);
+    const el=$('#keyStatus');
+    el.textContent=msg;
+    el.className = type==='ok' ? 'ok' : 'warn';
+  }
+
+  // Update UI based on authentication status
+  function updateAuthUI() {
+    const token = localStorage.getItem('plaud_jwt_token');
+    const username = localStorage.getItem('plaud_username');
+    const isAdmin = localStorage.getItem('plaud_is_admin') === 'true';
+    const loginBtn = $('#loginBtn');
+    const usersBtn = $('#usersBtn');
+    
+    console.log(`updateAuthUI: token=${!!token}, username=${username}, isAdmin=${isAdmin}`);
+    console.log(`Current button text: "${loginBtn.textContent}"`);
+    console.log(`Users button current display: "${usersBtn.style.display}"`);
+    
+    if (token && username) {
+      // User is logged in
+      const newText = `👤 ${username}`;
+      loginBtn.textContent = newText;
+      loginBtn.title = 'Выйти из системы';
+      loginBtn.onclick = handleLogout;
+      
+      // Показываем кнопку управления пользователями только администраторам
+      const shouldShowUsersBtn = isAdmin;
+      usersBtn.style.display = shouldShowUsersBtn ? 'block' : 'none';
+      
+      console.log(`UI updated: user logged in as ${username}, isAdmin=${isAdmin}, shouldShowUsersBtn=${shouldShowUsersBtn}, usersBtn.display="${usersBtn.style.display}"`);
+    } else {
+      // User is not logged in
+      loginBtn.textContent = '🔑 Войти';
+      loginBtn.title = 'Войти в систему';
+      loginBtn.onclick = () => {
+        console.log(`Login button clicked`);
+        openLoginModal();
+      };
+      usersBtn.style.display = 'none';
+      console.log(`UI updated: user not logged in, button text: "🔑 Войти"`);
+    }
+    
+    // Force a re-render by triggering a small style change
+    loginBtn.style.transform = 'scale(1)';
+    
+    // Additional verification
+    setTimeout(() => {
+      console.log(`UI verification after 100ms: button text="${loginBtn.textContent}", onclick=${typeof loginBtn.onclick}, usersBtn.display="${usersBtn.style.display}"`);
+    }, 100);
+  }
+
+  // Logout function
+  function handleLogout() {
+    console.log(`Logout initiated`);
+    localStorage.removeItem('plaud_jwt_token');
+    localStorage.removeItem('plaud_username');
+    localStorage.removeItem('plaud_is_admin');
+    updateKeyStatus('Вы вышли из системы', 'warn');
+    showNotification('👋 До свидания!', 'info');
+    updateAuthUI();
   }
 
   // ========== Microphones ==========
@@ -407,7 +1019,7 @@
 
   async function startRec(){
     console.log(`startRec called`);
-    if (!await checkAuth()) { showNotification('❌ Проверьте API ключ','error'); return; }
+    if (!await checkAuth()) { showNotification('❌ Войдите в систему','error'); return; }
     try {
       const audioConstraints = { echoCancellation:true, noiseSuppression:true, autoGainControl:true, sampleRate:48000, channelCount:1 };
       const selectedMicId = micSelect.value; if (selectedMicId) audioConstraints.deviceId = { exact: selectedMicId };
@@ -520,21 +1132,7 @@
     } 
   };
 
-  $('#saveKey').onclick = async () => { 
-    const k=$('#apiKey').value; 
-    console.log(`Save key button clicked, key length: ${k ? k.length : 0}`);
-    if (k){ 
-      localStorage.setItem('plaud_api_key', k); 
-      showNotification('💾 Ключ сохранён','success'); 
-      await checkAuth(); 
-    } else { 
-      showNotification('⚠️ Введите API ключ','warn'); 
-    } 
-  };
-  $('#apiKey').oninput = () => { 
-    console.log(`API key input changed, length: ${$('#apiKey').value.length}`);
-    updateKeyStatus('Ключ изменен','warn'); 
-  };
+
 
   setTimeout(async()=>{ 
     console.log(`Initial auth check timeout`); 
@@ -615,7 +1213,8 @@
   async function uploadBlob(blob, filename){
     const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`;
     const lang = langSel.value || 'ru';
-    const apiKey = $('#apiKey').value; if (!apiKey) { showNotification('⚠️ Введите API ключ','warn'); return; }
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { showNotification('⚠️ Войдите в систему','warn'); return; }
 
     console.log(`uploadBlob: ${filename}, lang: ${lang}`);
     const card = makeJobCard({filename, lang}); 
@@ -626,7 +1225,7 @@
     
     try {
       const fd = new FormData(); fd.append('file', blob, filename);
-      const res = await fetch(`${apiBase}/upload?language=${encodeURIComponent(lang)}`, { method:'POST', body: fd, headers: { 'Authorization': `Bearer ${apiKey}` } });
+      const res = await fetch(`${apiBase}/upload?language=${encodeURIComponent(lang)}`, { method:'POST', body: fd, headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) throw new Error(await res.text());
       const { job_id } = await res.json();
       console.log(`Upload successful, job_id: ${job_id}`);
@@ -694,63 +1293,71 @@
       console.log(`Elements: progressBar=`, progressBar, `statusBadge=`, statusBadge, `statusText=`, statusText, `processDetails=`, processDetails);
       
       // Обновляем прогресс бар
-      progressBar.style.width = percent + '%'; 
-      progressBar.textContent = percent + '%';
-      console.log(`Progress bar updated: width=${progressBar.style.width}, text=${progressBar.textContent}`);
-      
-      // Убираем все классы и добавляем нужный
-      progressBar.className = 'progress-bar';
-      if (status==='processing' || status==='queued') progressBar.classList.add('processing');
-      else if (status==='transcribed_waiting_summary') progressBar.classList.add('transcribing');
-      else if (status==='done') progressBar.classList.add('done');
-      else if (status==='error') progressBar.classList.add('error');
-      console.log(`Progress bar classes: ${progressBar.className}`);
+      if (progressBar) {
+        progressBar.style.width = percent + '%'; 
+        progressBar.textContent = percent + '%';
+        console.log(`Progress bar updated: width=${progressBar.style.width}, text=${progressBar.textContent}`);
+        
+        // Убираем все классы и добавляем нужный
+        progressBar.className = 'progress-bar';
+        if (status==='processing' || status==='queued') progressBar.classList.add('processing');
+        else if (status==='transcribed_waiting_summary') progressBar.classList.add('transcribing');
+        else if (status==='done') progressBar.classList.add('done');
+        else if (status==='error') progressBar.classList.add('error');
+        console.log(`Progress bar classes: ${progressBar.className}`);
+      }
 
       // Обновляем статус бейдж
-      statusBadge.className = 'status-badge ' + (
-        status==='queued' ? 'status-queued' :
-        status==='processing' ? 'status-processing' :
-        status==='transcribed_waiting_summary' ? 'status-transcribing' :
-        status==='done' ? 'status-done' : 'status-error'
-      );
-      console.log(`Status badge classes: ${statusBadge.className}`);
-      
-      // Обновляем текст статуса
-      const map = { 
-        queued:'В очереди', 
-        processing:'Обработка...', 
-        transcribed_waiting_summary:'Транскрипция → саммари', 
-        done:'Готово!', 
-        error:'Ошибка' 
-      };
-      statusBadge.textContent = map[status] || status;
-      console.log(`Status badge text: ${statusBadge.textContent}`);
+      if (statusBadge) {
+        statusBadge.className = 'status-badge ' + (
+          status==='queued' ? 'status-queued' :
+          status==='processing' ? 'status-processing' :
+          status==='transcribed_waiting_summary' ? 'status-transcribing' :
+          status==='done' ? 'status-done' : 'status-error'
+        );
+        console.log(`Status badge classes: ${statusBadge.className}`);
+        
+        // Обновляем текст статуса
+        const map = { 
+          queued:'В очереди', 
+          processing:'Обработка...', 
+          transcribed_waiting_summary:'Транскрипция → саммари', 
+          done:'Готово!', 
+          error:'Ошибка' 
+        };
+        statusBadge.textContent = map[status] || status;
+        console.log(`Status badge text: ${statusBadge.textContent}`);
+      }
       
       // Обновляем детали процесса
-      if (details) processDetails.innerHTML = details;
-      console.log(`Process details: ${details}`);
+      if (processDetails && details) {
+        processDetails.innerHTML = details;
+        console.log(`Process details: ${details}`);
+      }
       
       // Обновляем текст статуса
-      const statusTextMap = {
-        queued: 'Ожидание обработки...',
-        processing: 'Обработка аудио...',
-        transcribed_waiting_summary: 'Создание саммари...',
-        done: 'Обработка завершена!',
-        error: 'Произошла ошибка'
-      };
-      statusText.textContent = statusTextMap[status] || 'Неизвестный статус';
-      console.log(`Status text: ${statusText.textContent}`);
+      if (statusText) {
+        const statusTextMap = {
+          queued: 'Ожидание обработки...',
+          processing: 'Обработка аудио...',
+          transcribed_waiting_summary: 'Создание саммари...',
+          done: 'Обработка завершена!',
+          error: 'Произошла ошибка'
+        };
+        statusText.textContent = statusTextMap[status] || 'Неизвестный статус';
+        console.log(`Status text: ${statusText.textContent}`);
+      }
       
-      console.log(`Final state: progressBar.width=${progressBar.style.width}, statusBadge.text=${statusBadge.textContent}, statusText.text=${statusText.textContent}`);
+      console.log(`Final state: progressBar.width=${progressBar?.style.width}, statusBadge.text=${statusBadge?.textContent}, statusText.text=${statusText?.textContent}`);
     }
 
-    return {
+    const card = {
       el,
       setJobId(id){ 
         console.log(`setJobId: ${id}`); 
         console.log(`jobEl:`, jobEl);
-        jobEl.textContent=id; 
-        console.log(`jobEl.textContent set to:`, jobEl.textContent);
+        if (jobEl) jobEl.textContent=id; 
+        console.log(`jobEl.textContent set to:`, jobEl?.textContent);
         console.log(`Calling updateProgress(14, 'queued', '📤 Файл загружен, ожидание в очереди...')`);
         updateProgress(14,'queued','📤 Файл загружен, ожидание в очереди...'); 
       },
@@ -783,16 +1390,16 @@
         console.log(`Calling updateProgress(0, 'error', '❌ Ошибка: ' + msg)`);
         updateProgress(0,'error','❌ Ошибка: '+msg); 
         console.log(`Setting statusText.innerHTML to: <span class="warn">${msg}</span>`);
-        statusText.innerHTML = `<span class="warn">${msg}</span>`; 
+        if (statusText) statusText.innerHTML = `<span class="warn">${msg}</span>`; 
       },
       showResult(data){
         console.log(`showResult:`, data);
         console.log(`Setting lastResult and showing resultsSection`);
         lastResult = data; 
-        resultsSection.style.display='block';
+        if (resultsSection) resultsSection.style.display='block';
         
         const tr = data?.transcript;
-        if (tr) {
+        if (tr && transcriptContent) {
           console.log(`Transcript found:`, tr);
           transcriptContent.innerHTML = `
             <div style="margin-bottom:12px"><strong>Полный текст:</strong>
@@ -809,7 +1416,7 @@
         }
         
         const sm = data?.summary; 
-        if (sm){
+        if (sm && summaryContent){
           console.log(`Summary found:`, sm);
           let html='';
           if (sm.meeting_summary) html += `<div style="margin-bottom:12px"><strong>📋 Резюме встречи:</strong><div style="background:#0f261b;padding:10px;border-radius:8px;margin-top:6px">${sm.meeting_summary}</div></div>`;
@@ -824,18 +1431,12 @@
         }
         
         console.log(`Setting up button handlers`);
-        btnJson.onclick = () => { const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`result_${data.job_id}.json`; a.click(); URL.revokeObjectURL(a.href); showNotification('📥 JSON скачан','success'); };
-        btnCopy.onclick = async () => { try { const text = summaryContent.textContent||''; await navigator.clipboard.writeText(text); btnCopy.textContent='📋 Скопировано!'; setTimeout(()=>btnCopy.textContent='📋 Скопировать саммари',1800); showNotification('📋 Саммари скопировано','success'); } catch(_) { showNotification('❌ Не удалось скопировать','error'); } };
+        if (btnJson) btnJson.onclick = () => { const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`result_${data.job_id}.json`; a.click(); URL.revokeObjectURL(a.href); showNotification('📥 JSON скачан','success'); };
+        if (btnCopy) btnCopy.onclick = async () => { try { const text = summaryContent?.textContent||''; await navigator.clipboard.writeText(text); btnCopy.textContent='📋 Скопировано!'; setTimeout(()=>btnCopy.textContent='📋 Скопировать саммари',1800); showNotification('📋 Саммари скопировано','success'); } catch(_) { showNotification('❌ Не удалось скопировать','error'); } };
       }
     };
     
-    console.log(`makeJobCard returning object with methods:`, Object.keys({
-      el,
-      setJobId: card.setJobId,
-      setStatus: card.setStatus,
-      setError: card.setError,
-      showResult: card.showResult
-    }));
+    console.log(`makeJobCard returning object with methods:`, Object.keys(card));
     
     return card;
   }
@@ -869,7 +1470,8 @@
     card.setStatus('processing'); 
     let done=false; 
     let attempts=0; 
-    const apiKey=$('#apiKey').value; 
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { console.error('No JWT token'); return; }
     showNotification('🔄 Обработка аудио...','info');
     
     const tick = async () => {
@@ -877,7 +1479,7 @@
       console.log(`pollStatus tick ${attempts} for job ${jobId}`);
       
       try {
-        const s = await fetch(`${apiBase}/status/${jobId}`, { headers:{ 'Authorization': `Bearer ${apiKey}` } }).then(r=>r.json());
+        const s = await fetch(`${apiBase}/status/${jobId}`, { headers:{ 'Authorization': `Bearer ${token}` } }).then(r=>r.json());
         
         // Обновляем статус с деталями процесса
         console.log(`Job ${jobId}: status = ${s.status}, attempt = ${attempts}`);
@@ -892,7 +1494,7 @@
         } else if (s.status === 'done') {
           card.setStatus('done');
           try {
-            const out = await fetch(`${apiBase}/result/${jobId}`, { headers:{ 'Authorization': `Bearer ${apiKey}` } }).then(r=>r.json());
+            const out = await fetch(`${apiBase}/result/${jobId}`, { headers:{ 'Authorization': `Bearer ${token}` } }).then(r=>r.json());
             console.log(`Result fetched:`, out);
             card.showResult(out); 
             done=true; 
@@ -910,14 +1512,24 @@
           console.warn(`Unknown status: ${s.status}`);
           card.setStatus(s.status);
         }
+        
+        // Определяем задержку для следующего опроса
+        if (!done) {
+          const delay = s?.status==='processing' ? 1500 : 2000;
+          console.log(`Next tick in ${delay}ms for job ${jobId}`);
+          setTimeout(tick, delay);
+        }
       } catch (e) {
         console.error(`pollStatus error for job ${jobId}:`, e);
-        if (attempts>10) { card.setError('Ошибка соединения: '+e.message); showNotification('❌ Ошибка соединения: '+e.message,'error'); done=true; }
-      }
-      if (!done) {
-        const delay = s?.status==='processing' ? 1500 : 2000;
-        console.log(`Next tick in ${delay}ms for job ${jobId}`);
-        setTimeout(tick, delay);
+        if (attempts>10) { 
+          card.setError('Ошибка соединения: '+e.message); 
+          showNotification('❌ Ошибка соединения: '+e.message,'error'); 
+          done=true; 
+        } else {
+          // Повторяем попытку через 3 секунды при ошибке
+          console.log(`Retrying in 3000ms for job ${jobId} (attempt ${attempts})`);
+          setTimeout(tick, 3000);
+        }
       }
     };
     tick();
@@ -1061,11 +1673,13 @@
 
   async function loadHistory(){
     console.log(`loadHistory called`);
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { showNotification('⚠️ Войдите в систему','warn'); return; }
+    
     try{
       const apiBase = apiBaseInput.value || `${location.protocol}//${location.host}`; 
-      const apiKey=$('#apiKey').value;
       showNotification('📚 Загружаю историю...','info');
-      const resp = await fetch(`${apiBase}/history`, { headers: { 'Authorization': `Bearer ${apiKey}` } }); 
+      const resp = await fetch(`${apiBase}/history`, { headers: { 'Authorization': `Bearer ${token}` } }); 
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data = await resp.json(); 
       console.log(`History data:`, data);
@@ -1131,10 +1745,12 @@
 
   window.viewJobDetails = async function(jobId){
     console.log(`viewJobDetails: ${jobId}`);
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { showNotification('⚠️ Войдите в систему','warn'); return; }
+    
     try{ 
       const apiBase=apiBaseInput.value || `${location.protocol}//${location.host}`; 
-      const apiKey=$('#apiKey').value; 
-      const r=await fetch(`${apiBase}/history/${jobId}`, { headers:{ 'Authorization': `Bearer ${apiKey}` } }); 
+      const r=await fetch(`${apiBase}/history/${jobId}`, { headers:{ 'Authorization': `Bearer ${token}` } }); 
       if (!r.ok) throw new Error(`HTTP ${r.status}`); 
       const jobData = await r.json(); 
       console.log(`Job data:`, jobData);
@@ -1145,10 +1761,12 @@
 
   window.downloadJobResult = async function(jobId){
     console.log(`downloadJobResult: ${jobId}`);
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { showNotification('⚠️ Войдите в систему','warn'); return; }
+    
     try{ 
       const apiBase=apiBaseInput.value || `${location.protocol}//${location.host}`; 
-      const apiKey=$('#apiKey').value; 
-      const r=await fetch(`${apiBase}/result/${jobId}`, { headers:{ 'Authorization': `Bearer ${apiKey}` } }); 
+      const r=await fetch(`${apiBase}/result/${jobId}`, { headers:{ 'Authorization': `Bearer ${token}` } }); 
       if (!r.ok) throw new Error(`HTTP ${r.status}`); 
       const data=await r.json(); 
       const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); 
@@ -1165,10 +1783,12 @@
   window.deleteJob = async function(jobId){
     console.log(`deleteJob: ${jobId}`);
     if (!confirm(`Удалить задачу ${jobId}? Это действие нельзя отменить.`)) return;
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (!token) { showNotification('⚠️ Войдите в систему','warn'); return; }
+    
     try{ 
       const apiBase=apiBaseInput.value || `${location.protocol}//${location.host}`; 
-      const apiKey=$('#apiKey').value; 
-      const r=await fetch(`${apiBase}/history/${jobId}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${apiKey}` } }); 
+      const r=await fetch(`${apiBase}/history/${jobId}`, { method:'DELETE', headers:{ 'Authorization': `Bearer ${token}` } }); 
       if (!r.ok) throw new Error(`HTTP ${r.status}`); 
       showNotification('🗑️ Задача удалена','success'); 
       await loadHistory(); 
@@ -1205,6 +1825,29 @@
     modal.appendChild(card); document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
   }
+
+  // Initialize auth UI on page load
+  updateAuthUI();
+  
+  // Check authentication status on page load
+  checkAuth();
+  
+  // Set up periodic auth check (every 5 minutes)
+  setInterval(() => {
+    const token = localStorage.getItem('plaud_jwt_token');
+    if (token) {
+      console.log('Periodic auth check...');
+      checkAuth().then(isValid => {
+        if (!isValid) {
+          // Token is invalid, update UI
+          updateKeyStatus('Токен истек', 'warn');
+          updateAuthUI();
+          showNotification('🔑 Токен авторизации истек. Войдите снова.', 'warn');
+        }
+      });
+    }
+  }, 5 * 60 * 1000); // 5 minutes
+  
 })();
 </script>
 </body>

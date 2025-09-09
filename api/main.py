@@ -1,62 +1,83 @@
 import os, uuid, shutil, json
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, Depends, Header, Form
 from fastapi.responses import JSONResponse
 from redis import Redis
 from rq import Queue
 import httpx
+from typing import Optional
 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from fastapi import Depends, Header
 import secrets
+from sqlalchemy.orm import Session
+
+# Import our modules
+from database import get_db, init_db
+from models import User
+from auth import verify_password, get_password_hash, create_access_token, decode_access_token
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 DATA_DIR  = Path(os.getenv("DATA_DIR", "/data"))
 LANG_DEFAULT = "ru"
-API_TOKENS = {t.strip() for t in os.getenv("API_AUTH_TOKEN", "").split(",") if t.strip()}
 TRANSCRIBE_SERVER_URL = os.getenv("TRANSCRIBE_SERVER_URL", "http://worker_transcribe:8002")
 
-def require_auth(authorization: str = Header(default=None), x_api_key: str = Header(default=None)):
+def require_auth(authorization: str = Header(default=None), db: Session = Depends(get_db)):
     """
-    Принимаем либо Authorization: Bearer <token>, либо X-API-Key: <token>.
-    Если переменная окружения API_AUTH_TOKEN не задана — auth выключен.
+    Проверяет JWT токен в заголовке Authorization: Bearer <token>.
+    Токен должен быть валидным JWT токеном с информацией о пользователе.
     """
-    if not API_TOKENS:  # auth disabled
-        return
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header required")
     
     # Логируем попытку доступа
     import logging
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     
-    # 1) Authorization: Bearer ...
-    if authorization and authorization.lower().startswith("bearer "):
-        token = authorization.split(" ", 1)[1].strip()
-        if token in API_TOKENS:
-            logger.info(f"Successful Bearer auth for token: {token[:8]}...")
-            return
-        else:
-            logger.warning(f"Invalid Bearer token: {token[:8]}...")
+    token = authorization.split(" ", 1)[1].strip()
     
-    # 2) X-API-Key header
-    if x_api_key:
-        if x_api_key in API_TOKENS:
-            logger.info(f"Successful X-API-Key auth for token: {x_api_key[:8]}...")
-            return
+    # Проверяем JWT токен
+    payload = decode_access_token(token)
+    if payload and "sub" in payload:
+        username = payload.get("sub")
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.is_active:
+            logger.info(f"Successful JWT auth for user: {username}")
+            return user
         else:
-            logger.warning(f"Invalid X-API-Key token: {x_api_key[:8]}...")
+            logger.warning(f"Invalid JWT token for user: {username}")
+    else:
+        logger.warning(f"Invalid JWT token: {token[:8]}...")
     
     # Логируем неудачную попытку
     logger.error("Unauthorized access attempt")
     
     # иначе — 401
-    from fastapi import HTTPException
     raise HTTPException(status_code=401, detail="Unauthorized")
+
+def require_admin(authorization: str = Header(default=None), db: Session = Depends(get_db)):
+    """
+    Проверяет JWT токен и права администратора.
+    Возвращает объект пользователя-администратора.
+    """
+    # require_auth уже проверяет авторизацию и возвращает пользователя или выбрасывает исключение
+    user = require_auth(authorization, db)
+    
+    # Если мы дошли до этой точки, значит пользователь авторизован
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    return user
 
 
 app = FastAPI(title="Whisper+DeepSeek API (variant B)")
+
+# Initialize database on startup
+@app.on_event("startup")
+async def startup_event():
+    init_db()
 
 app.add_middleware(
     CORSMiddleware,
@@ -114,14 +135,123 @@ def enqueue_asr(job_id: str, audio_path: str, language: str):
 def healthz(_auth=Depends(require_auth)):
     return {"status": "ok"}
 
-@app.get("/auth/check")
-def check_auth(_auth=Depends(require_auth)):
-    """Проверка авторизации - возвращает информацию о текущем токене"""
+# New authentication endpoints
+@app.post("/auth/register")
+async def register_user(
+    username: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Регистрация нового пользователя"""
+    # Check if user already exists
+    existing_user = db.query(User).filter(
+        (User.username == username) | (User.email == email)
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Пользователь с таким именем или email уже существует"
+        )
+    
+    # Hash password
+    hashed_password = get_password_hash(password)
+    
+    # Create new user
+    new_user = User(
+        username=username,
+        email=email,
+        hashed_password=hashed_password
+    )
+    
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
     return {
-        "status": "authenticated",
-        "message": "Авторизация успешна",
-        "auth_enabled": bool(API_TOKENS)
+        "message": "Пользователь успешно зарегистрирован",
+        "user_id": new_user.id,
+        "username": new_user.username
     }
+
+@app.post("/auth/login")
+async def login_user(
+    username: str = Form(...),
+    password: str = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Аутентификация пользователя"""
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user or not verify_password(password, user.hashed_password):
+        raise HTTPException(
+            status_code=401,
+            detail="Неверное имя пользователя или пароль"
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="Пользователь заблокирован"
+        )
+    
+    # Create access token
+    access_token = create_access_token(data={"sub": user.username})
+    
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "username": user.username
+    }
+
+@app.get("/auth/me")
+async def get_current_user(
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    """Получение информации о текущем пользователе"""
+    # Проверяем JWT токен
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_access_token(token)
+    if payload and "sub" in payload:
+        username = payload.get("sub")
+        user = db.query(User).filter(User.username == username).first()
+        if user and user.is_active:
+            return {
+                "user_id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_active": user.is_active,
+                "is_admin": user.is_admin,
+                "created_at": user.created_at
+            }
+    
+    raise HTTPException(status_code=401, detail="Не удалось получить информацию о пользователе")
+
+@app.get("/auth/check")
+def check_auth(authorization: str = Header(...)):
+    """Проверка авторизации - возвращает информацию о текущем токене"""
+    # Проверяем JWT токен
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_access_token(token)
+    if payload and "sub" in payload:
+        username = payload.get("sub")
+        return {
+            "status": "authenticated",
+            "message": "Авторизация успешна",
+            "username": username,
+            "auth_enabled": True
+        }
+    
+    raise HTTPException(status_code=401, detail="Invalid token")
 
 @app.get("/stats")
 def get_stats(_auth=Depends(require_auth)):
@@ -375,3 +505,185 @@ def delete_job(job_id: str, _auth=Depends(require_auth)):
         return {"message": "Job deleted successfully"}
     except Exception as e:
         raise HTTPException(500, f"Failed to delete job: {str(e)}")
+
+# User management endpoints (только для администраторов)
+@app.get("/users")
+def list_users(admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Получение списка всех пользователей (только для администраторов)"""
+    try:
+        users = db.query(User).all()
+        return {
+            "users": [
+                {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "is_active": user.is_active,
+                    "is_admin": user.is_admin,
+                    "created_at": user.created_at
+                    # Временно убираем updated_at, так как поле может отсутствовать в базе данных
+                    # "updated_at": user.updated_at
+                }
+                for user in users
+            ]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+@app.delete("/users/{user_id}")
+def delete_user(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Удаление пользователя по ID (только для администраторов)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Нельзя удалить самого себя
+    if user.id == admin_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+    
+    try:
+        db.delete(user)
+        db.commit()
+        return {
+            "message": "Пользователь успешно удален",
+            "deleted_user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении пользователя: {str(e)}")
+
+@app.delete("/users/by-username/{username}")
+def delete_user_by_username(username: str, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Удаление пользователя по имени пользователя (только для администраторов)"""
+    user = db.query(User).filter(User.username == username).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Нельзя удалить самого себя
+    if user.id == admin_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя удалить самого себя")
+    
+    try:
+        db.delete(user)
+        db.commit()
+        return {
+            "message": "Пользователь успешно удален",
+            "deleted_user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении пользователя: {str(e)}")
+
+@app.patch("/users/{user_id}/deactivate")
+def deactivate_user(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Деактивация пользователя (мягкое удаление) (только для администраторов)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Нельзя деактивировать самого себя
+    if user.id == admin_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя деактивировать самого себя")
+    
+    try:
+        user.is_active = False
+        db.commit()
+        return {
+            "message": "Пользователь деактивирован",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_active": user.is_active
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при деактивации пользователя: {str(e)}")
+
+@app.patch("/users/{user_id}/activate")
+def activate_user(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Активация пользователя (только для администраторов)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    try:
+        user.is_active = True
+        db.commit()
+        return {
+            "message": "Пользователь активирован",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_active": user.is_active
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при активации пользователя: {str(e)}")
+
+@app.patch("/users/{user_id}/make-admin")
+def make_admin(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Назначение пользователя администратором (только для администраторов)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    try:
+        user.is_admin = True
+        db.commit()
+        return {
+            "message": "Пользователь назначен администратором",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_admin": user.is_admin
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при назначении администратора: {str(e)}")
+
+@app.patch("/users/{user_id}/remove-admin")
+def remove_admin(user_id: int, admin_user=Depends(require_admin), db: Session = Depends(get_db)):
+    """Снятие прав администратора (только для администраторов)"""
+    user = db.query(User).filter(User.id == user_id).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    
+    # Нельзя снять права администратора у самого себя
+    if user.id == admin_user.id:
+        raise HTTPException(status_code=400, detail="Нельзя снять права администратора у самого себя")
+    
+    try:
+        user.is_admin = False
+        db.commit()
+        return {
+            "message": "Права администратора сняты",
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "email": user.email,
+                "is_admin": user.is_admin
+            }
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Ошибка при снятии прав администратора: {str(e)}")

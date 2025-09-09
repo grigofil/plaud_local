@@ -1,0 +1,390 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta name="color-scheme" content="light dark"/>
+  <title>Регистрация - Plaud</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: rgba(255, 255, 255, 0.7);
+      --card: rgba(255, 255, 255, 0.65);
+      --text: #0f172a;
+      --muted: #6b7280;
+      --border: rgba(15,23,42,.08);
+      --ring: rgba(99,102,241,.25);
+      --primary: #6366f1;
+      --primary-600: #4f46e5;
+      --primary-700: #4338ca;
+      --success: #16a34a;
+      --warn: #f59e0b;
+      --danger: #ef4444;
+      --shadow: 0 10px 30px rgba(2,6,23,.15);
+      --radius: 14px;
+      --radius-sm: 10px;
+      --font: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Segoe UI Variable", Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    
+    [data-theme="dark"] {
+      --bg: #0b0f14;
+      --panel: rgba(17, 24, 39, 0.6);
+      --card: rgba(17, 24, 39, 0.55);
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --border: rgba(255,255,255,.06);
+      --ring: rgba(99,102,241,.35);
+      --shadow: 0 14px 40px rgba(0,0,0,.45);
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(1000px 600px at 0% 10%, rgba(99,102,241,.15), transparent 60%),
+        radial-gradient(1000px 600px at 100% 0%, rgba(56,189,248,.12), transparent 60%),
+        linear-gradient(180deg, rgba(255,255,255,.6), rgba(255,255,255,.6));
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    
+    [data-theme="dark"] body { 
+      background:
+        radial-gradient(1000px 600px at 0% 10%, rgba(99,102,241,.25), transparent 60%),
+        radial-gradient(1000px 600px at 100% 0%, rgba(56,189,248,.2), transparent 60%),
+        linear-gradient(180deg, rgba(2,6,23,.85), rgba(2,6,23,.85)); 
+    }
+
+    .container { 
+      max-width: 500px; 
+      margin: 50px auto; 
+      padding: 0 18px; 
+    }
+
+    .nav {
+      position: sticky; 
+      top: 0; 
+      z-index: 50; 
+      backdrop-filter: saturate(140%) blur(12px);
+      background: var(--panel); 
+      border-bottom: 1px solid var(--border);
+    }
+    
+    .nav-inner { 
+      display:flex; 
+      align-items:center; 
+      justify-content:space-between; 
+      gap:12px; 
+      padding: 12px 18px; 
+      max-width: 1100px; 
+      margin: 0 auto; 
+    }
+    
+    .brand { 
+      display:flex; 
+      align-items:center; 
+      gap:12px; 
+      font-weight: 700; 
+      letter-spacing:.3px; 
+    }
+    
+    .brand .logo { 
+      width: 32px; 
+      height: 32px; 
+      border-radius: 10px; 
+      background: linear-gradient(135deg, var(--primary), #22d3ee); 
+      display:grid; 
+      place-items:center; 
+      color:white; 
+      box-shadow: var(--shadow);
+    }
+
+    .card { 
+      border:1px solid var(--border); 
+      border-radius: var(--radius); 
+      padding: 32px; 
+      margin: 14px 0; 
+      box-shadow: var(--shadow);
+      background: var(--card); 
+    }
+
+    h1 { 
+      font-size: 2rem; 
+      margin: 0 0 24px; 
+      text-align: center;
+      color: var(--primary);
+    }
+    
+    h3 { 
+      margin: 0 0 8px; 
+      font-size: 1.05rem; 
+    }
+    
+    .muted { 
+      color: var(--muted); 
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    input, select { 
+      width: 100%;
+      box-sizing: border-box;
+      border:1px solid var(--border); 
+      border-radius: 10px; 
+      padding: 12px 16px; 
+      background: rgba(255,255,255,.7); 
+      color: var(--text);
+      font-size: 16px;
+      transition: border-color 0.2s ease;
+    }
+    
+    [data-theme="dark"] input, [data-theme="dark"] select { 
+      background: rgba(15,23,42,.55); 
+    }
+    
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px var(--ring);
+    }
+
+    button, .btn { 
+      appearance: none; 
+      border: 1px solid var(--border); 
+      background: rgba(255,255,255,.6); 
+      color: var(--text);
+      padding: 12px 24px; 
+      border-radius: var(--radius-sm); 
+      cursor: pointer; 
+      transition: .2s ease; 
+      box-shadow: 0 1px 0 rgba(2,6,23,.04);
+      backdrop-filter: blur(6px); 
+      font-size: 16px;
+      font-weight: 500;
+      width: 100%;
+    }
+    
+    [data-theme="dark"] button { 
+      background: rgba(15,23,42,.55); 
+    }
+    
+    button:hover { 
+      transform: translateY(-1px); 
+      box-shadow: 0 6px 18px rgba(2,6,23,.12); 
+    }
+    
+    button:active { 
+      transform: translateY(0); 
+      box-shadow: 0 2px 10px rgba(2,6,23,.08); 
+    }
+
+    .btn-primary { 
+      background: linear-gradient(135deg, var(--primary), var(--primary-700)); 
+      color: #fff; 
+      border-color: transparent; 
+      box-shadow: 0 10px 20px rgba(79,70,229,.35); 
+    }
+    
+    .btn-primary:hover { 
+      filter: brightness(1.05); 
+      transform: translateY(-1px); 
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border-color: var(--border);
+      margin-top: 12px;
+    }
+
+    .alert {
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      margin-bottom: 20px;
+      font-weight: 500;
+    }
+
+    .alert-success {
+      background: rgba(22, 163, 74, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(22, 163, 74, 0.2);
+    }
+
+    .alert-error {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+    }
+
+    .theme-toggle {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      padding: 8px;
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 20px;
+    }
+
+    .theme-toggle:hover {
+      background: rgba(0,0,0,0.05);
+    }
+
+    [data-theme="dark"] .theme-toggle:hover {
+      background: rgba(255,255,255,0.05);
+    }
+
+    .login-link {
+      text-align: center;
+      margin-top: 20px;
+    }
+
+    .login-link a {
+      color: var(--primary);
+      text-decoration: none;
+    }
+
+    .login-link a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <div class="nav-inner">
+      <div class="brand">
+        <div class="logo">🎵</div>
+        <div>Plaud</div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">🌙</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="card">
+      <h1>Регистрация</h1>
+      <p class="muted">Создайте аккаунт для доступа к системе</p>
+      
+      <div id="alert" style="display: none;"></div>
+      
+      <form id="registerForm">
+        <div class="form-group">
+          <label for="username">Имя пользователя</label>
+          <input type="text" id="username" name="username" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="password">Пароль</label>
+          <input type="password" id="password" name="password" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="confirmPassword">Подтвердите пароль</label>
+          <input type="password" id="confirmPassword" name="confirmPassword" required>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Зарегистрироваться</button>
+      </form>
+      
+      <div class="login-link">
+        Уже есть аккаунт? <a href="index.html">Войти</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Theme toggle
+    function toggleTheme() {
+      const html = document.documentElement;
+      const currentTheme = html.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      
+      html.setAttribute('data-theme', newTheme);
+      
+      const button = document.querySelector('.theme-toggle');
+      button.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+      
+      localStorage.setItem('theme', newTheme);
+    }
+
+    // Load saved theme
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    document.querySelector('.theme-toggle').textContent = savedTheme === 'dark' ? '☀️' : '🌙';
+
+    // Form submission
+    document.getElementById('registerForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const username = document.getElementById('username').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const password = document.getElementById('password').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      
+      // Validation
+      if (password !== confirmPassword) {
+        showAlert('Пароли не совпадают', 'error');
+        return;
+      }
+      
+      if (password.length < 6) {
+        showAlert('Пароль должен содержать минимум 6 символов', 'error');
+        return;
+      }
+      
+      try {
+        const formData = new FormData();
+        formData.append('username', username);
+        formData.append('email', email);
+        formData.append('password', password);
+        
+        const response = await fetch('/auth/register', {
+          method: 'POST',
+          body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (response.ok) {
+          showAlert('Пользователь успешно зарегистрирован! Теперь вы можете войти в систему.', 'success');
+          document.getElementById('registerForm').reset();
+        } else {
+          showAlert(result.detail || 'Ошибка при регистрации', 'error');
+        }
+      } catch (error) {
+        showAlert('Ошибка соединения с сервером', 'error');
+        console.error('Error:', error);
+      }
+    });
+
+    function showAlert(message, type) {
+      const alertDiv = document.getElementById('alert');
+      alertDiv.textContent = message;
+      alertDiv.className = `alert alert-${type}`;
+      alertDiv.style.display = 'block';
+      
+      // Auto-hide after 5 seconds
+      setTimeout(() => {
+        alertDiv.style.display = 'none';
+      }, 5000);
+    }
+  </script>
+</body>
+</html>
