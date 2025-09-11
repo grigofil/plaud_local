@@ -12,4 +12,16 @@
     <string name="completed">Completed</string>
     <string name="error">Error</string>
     <string name="file_selected">File selected: %s</string>
+    <string name="record_audio">Record Audio</string>
+    <string name="start_recording">Start Recording</string>
+    <string name="stop_recording">Stop Recording</string>
+    <string name="recording_status">Recording status: %s</string>
+    <string name="recording_time">Recording time: %s</string>
+    <string name="not_recording">Not recording</string>
+    <string name="recording">Recording...</string>
+    <string name="recording_finished">Recording finished</string>
+    <string name="recording_error">Recording error</string>
+    <string name="permission_denied">Microphone permission denied</string>
+    <string name="recording_failed">Recording failed: %s</string>
+    <string name="no_audio_data">No audio data recorded</string>
 </resources>

@@ -1,6 +1,9 @@
 package com.example.plaudlocal
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -11,9 +14,11 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.MediaType
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -22,6 +27,8 @@ import okhttp3.Response
 import org.json.JSONObject
 import java.io.File
 import java.io.IOException
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 class MainActivity : AppCompatActivity() {
@@ -34,6 +41,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var statusTextView: TextView
     private lateinit var resultTextView: TextView
+    
+    // Recording UI elements
+    private lateinit var startRecordingButton: Button
+    private lateinit var stopRecordingButton: Button
+    private lateinit var recordingStatusTextView: TextView
+    private lateinit var recordingTimeTextView: TextView
 
     private var selectedFileUri: Uri? = null
     private var currentJobId: String? = null
@@ -43,6 +56,14 @@ class MainActivity : AppCompatActivity() {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
+    
+    // Recording variables
+    private var mediaRecorder: MediaRecorder? = null
+    private var isRecording = false
+    private var recordingStartTime: Long = 0
+    private var recordingFile: File? = null
+    private val recordingTimer = Timer()
+    private var recordingTimerTask: TimerTask? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +78,12 @@ class MainActivity : AppCompatActivity() {
         progressBar = findViewById(R.id.progressBar)
         statusTextView = findViewById(R.id.statusTextView)
         resultTextView = findViewById(R.id.resultTextView)
+        
+        // Initialize recording views
+        startRecordingButton = findViewById(R.id.startRecordingButton)
+        stopRecordingButton = findViewById(R.id.stopRecordingButton)
+        recordingStatusTextView = findViewById(R.id.recordingStatusTextView)
+        recordingTimeTextView = findViewById(R.id.recordingTimeTextView)
 
         // Set default API URL (localhost for emulator, change for real device)
         apiUrlEditText.setText("http://10.0.2.2:8000")
@@ -73,6 +100,15 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Please select a file first", Toast.LENGTH_SHORT).show()
             }
+        }
+        
+        // Recording buttons
+        startRecordingButton.setOnClickListener {
+            startRecording()
+        }
+        
+        stopRecordingButton.setOnClickListener {
+            stopRecording()
         }
     }
 
@@ -136,10 +172,21 @@ class MainActivity : AppCompatActivity() {
         uploadButton.isEnabled = false
 
         selectedFileUri?.let { uri ->
-            val file = File(uri.path!!)
+            val file = if (uri.scheme == "file") {
+                File(uri.path!!)
+            } else {
+                // For content URIs, we need to read the file differently
+                val inputStream = contentResolver.openInputStream(uri)
+                val tempFile = File(getExternalFilesDir(null), "temp_upload.3gp")
+                tempFile.outputStream().use { output ->
+                    inputStream?.copyTo(output)
+                }
+                tempFile
+            }
+            
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("file", file.name, RequestBody.create(MediaType.parse("audio/*"), file))
+                .addFormDataPart("file", file.name, RequestBody.create("audio/*".toMediaType(), file))
                 .build()
 
             val request = Request.Builder()
@@ -162,7 +209,7 @@ class MainActivity : AppCompatActivity() {
                     handler.post {
                         progressBar.visibility = ProgressBar.GONE
                         if (response.isSuccessful) {
-                            val responseBody = response.body()?.string()
+                            val responseBody = response.body?.string()
                             try {
                                 val json = JSONObject(responseBody)
                                 currentJobId = json.getString("job_id")
@@ -174,7 +221,7 @@ class MainActivity : AppCompatActivity() {
                             }
                         } else {
                             statusTextView.text = getString(R.string.error)
-                            resultTextView.text = "Upload failed: ${response.code()} - ${response.message()}"
+                            resultTextView.text = "Upload failed: ${response.code} - ${response.message}"
                         }
                         uploadButton.isEnabled = true
                     }
@@ -204,7 +251,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 handler.post {
                     if (response.isSuccessful) {
-                        val responseBody = response.body()?.string()
+                        val responseBody = response.body?.string()
                         try {
                             val json = JSONObject(responseBody)
                             val status = json.getString("status")
@@ -229,7 +276,7 @@ class MainActivity : AppCompatActivity() {
                         }
                     } else {
                         statusTextView.text = getString(R.string.error)
-                        resultTextView.text = "Status check failed: ${response.code()}"
+                        resultTextView.text = "Status check failed: ${response.code}"
                     }
                 }
             }
@@ -257,7 +304,7 @@ class MainActivity : AppCompatActivity() {
             override fun onResponse(call: Call, response: Response) {
                 handler.post {
                     if (response.isSuccessful) {
-                        val responseBody = response.body()?.string()
+                        val responseBody = response.body?.string()
                         try {
                             val json = JSONObject(responseBody)
                             val transcript = json.optJSONObject("transcript")
@@ -283,14 +330,153 @@ class MainActivity : AppCompatActivity() {
                             resultTextView.text = "Failed to parse results: ${e.message}"
                         }
                     } else {
-                        resultTextView.text = "Failed to fetch results: ${response.code()}"
+                        resultTextView.text = "Failed to fetch results: ${response.code}"
                     }
                 }
             }
         })
     }
 
+    private fun startRecording() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
+            != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.RECORD_AUDIO),
+                RECORD_AUDIO_PERMISSION_CODE
+            )
+            return
+        }
+        
+        try {
+            // Create recording file
+            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+            recordingFile = File(getExternalFilesDir(null), "recording_$timestamp.3gp")
+            
+            // Initialize MediaRecorder
+            mediaRecorder = MediaRecorder().apply {
+                setAudioSource(MediaRecorder.AudioSource.MIC)
+                setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+                setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+                setOutputFile(recordingFile!!.absolutePath)
+                prepare()
+                start()
+            }
+            
+            isRecording = true
+            recordingStartTime = System.currentTimeMillis()
+            
+            // Update UI
+            startRecordingButton.isEnabled = false
+            stopRecordingButton.isEnabled = true
+            recordingStatusTextView.text = getString(R.string.recording)
+            recordingTimeTextView.visibility = TextView.VISIBLE
+            
+            // Start timer
+            startRecordingTimer()
+            
+            Toast.makeText(this, "Recording started", Toast.LENGTH_SHORT).show()
+            
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.recording_failed, e.message), Toast.LENGTH_LONG).show()
+            resetRecordingUI()
+        }
+    }
+    
+    private fun stopRecording() {
+        try {
+            mediaRecorder?.apply {
+                stop()
+                release()
+            }
+            mediaRecorder = null
+            
+            isRecording = false
+            
+            // Stop timer
+            recordingTimerTask?.cancel()
+            recordingTimerTask = null
+            
+            // Update UI
+            resetRecordingUI()
+            
+            // Check if file was created and has content
+            if (recordingFile?.exists() == true && recordingFile!!.length() > 0) {
+                recordingStatusTextView.text = getString(R.string.recording_finished)
+                recordingTimeTextView.text = ""
+                
+                // Set the recorded file as selected file
+                selectedFileUri = Uri.fromFile(recordingFile)
+                selectedFileTextView.text = getString(R.string.file_selected, recordingFile!!.name)
+                uploadButton.isEnabled = true
+                
+                Toast.makeText(this, "Recording completed", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, getString(R.string.no_audio_data), Toast.LENGTH_LONG).show()
+                recordingStatusTextView.text = getString(R.string.recording_error)
+            }
+            
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.recording_failed, e.message), Toast.LENGTH_LONG).show()
+            resetRecordingUI()
+        }
+    }
+    
+    private fun resetRecordingUI() {
+        startRecordingButton.isEnabled = true
+        stopRecordingButton.isEnabled = false
+        recordingStatusTextView.text = getString(R.string.not_recording)
+        recordingTimeTextView.visibility = TextView.GONE
+    }
+    
+    private fun startRecordingTimer() {
+        recordingTimerTask = object : TimerTask() {
+            override fun run() {
+                if (isRecording) {
+                    val elapsedTime = System.currentTimeMillis() - recordingStartTime
+                    val seconds = elapsedTime / 1000
+                    val minutes = seconds / 60
+                    val remainingSeconds = seconds % 60
+                    
+                    handler.post {
+                        recordingTimeTextView.text = getString(
+                            R.string.recording_time,
+                            String.format("%02d:%02d", minutes, remainingSeconds)
+                        )
+                    }
+                }
+            }
+        }
+        recordingTimer.scheduleAtFixedRate(recordingTimerTask, 0, 1000)
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            RECORD_AUDIO_PERMISSION_CODE -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    startRecording()
+                } else {
+                    Toast.makeText(this, getString(R.string.permission_denied), Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isRecording) {
+            stopRecording()
+        }
+        recordingTimer.cancel()
+    }
+
     companion object {
         private const val FILE_SELECT_CODE = 100
+        private const val RECORD_AUDIO_PERMISSION_CODE = 101
     }
 }
