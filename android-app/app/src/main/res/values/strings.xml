@@ -24,4 +24,23 @@
     <string name="permission_denied">Microphone permission denied</string>
     <string name="recording_failed">Recording failed: %s</string>
     <string name="no_audio_data">No audio data recorded</string>
+    <string name="login">Login</string>
+    <string name="logout">Logout</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="login_hint">Enter username</string>
+    <string name="password_hint">Enter password</string>
+    <string name="login_button">Login</string>
+    <string name="cancel">Cancel</string>
+    <string name="login_success">Login successful</string>
+    <string name="login_failed">Login failed</string>
+    <string name="login_error">Login error: %s</string>
+    <string name="logout_success">Logged out successfully</string>
+    <string name="not_logged_in">Not logged in</string>
+    <string name="logged_in_as">Logged in as: %s</string>
+    <string name="auth_required">Authentication required</string>
+    <string name="invalid_credentials">Invalid username or password</string>
+    <string name="user_blocked">User is blocked</string>
+    <string name="connection_error">Connection error</string>
+    <string name="login_in_progress">Logging in...</string>
 </resources>

@@ -1,13 +1,16 @@
 package com.example.plaudlocal
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.media.MediaRecorder
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ProgressBar
@@ -34,13 +37,16 @@ import java.util.concurrent.TimeUnit
 class MainActivity : AppCompatActivity() {
 
     private lateinit var apiUrlEditText: EditText
-    private lateinit var apiTokenEditText: EditText
     private lateinit var selectFileButton: Button
     private lateinit var uploadButton: Button
     private lateinit var selectedFileTextView: TextView
     private lateinit var progressBar: ProgressBar
     private lateinit var statusTextView: TextView
     private lateinit var resultTextView: TextView
+    
+    // Authentication UI elements
+    private lateinit var authStatusTextView: TextView
+    private lateinit var loginButton: Button
     
     // Recording UI elements
     private lateinit var startRecordingButton: Button
@@ -57,6 +63,12 @@ class MainActivity : AppCompatActivity() {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
+    // Authentication variables
+    private lateinit var sharedPreferences: SharedPreferences
+    private var authToken: String? = null
+    private var currentUsername: String? = null
+    private var isLoggedIn = false
+    
     // Recording variables
     private var mediaRecorder: MediaRecorder? = null
     private var isRecording = false
@@ -71,7 +83,6 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize views
         apiUrlEditText = findViewById(R.id.apiUrlEditText)
-        apiTokenEditText = findViewById(R.id.apiTokenEditText)
         selectFileButton = findViewById(R.id.selectFileButton)
         uploadButton = findViewById(R.id.uploadButton)
         selectedFileTextView = findViewById(R.id.selectedFileTextView)
@@ -79,14 +90,33 @@ class MainActivity : AppCompatActivity() {
         statusTextView = findViewById(R.id.statusTextView)
         resultTextView = findViewById(R.id.resultTextView)
         
+        // Initialize authentication views
+        authStatusTextView = findViewById(R.id.authStatusTextView)
+        loginButton = findViewById(R.id.loginButton)
+        
         // Initialize recording views
         startRecordingButton = findViewById(R.id.startRecordingButton)
         stopRecordingButton = findViewById(R.id.stopRecordingButton)
         recordingStatusTextView = findViewById(R.id.recordingStatusTextView)
         recordingTimeTextView = findViewById(R.id.recordingTimeTextView)
+        
+        // Initialize SharedPreferences
+        sharedPreferences = getSharedPreferences("plaud_auth", MODE_PRIVATE)
 
         // Set default API URL (localhost for emulator, change for real device)
         apiUrlEditText.setText("http://10.0.2.2:8000")
+
+        // Load saved authentication
+        loadAuthState()
+
+        // Authentication button
+        loginButton.setOnClickListener {
+            if (isLoggedIn) {
+                logout()
+            } else {
+                showLoginDialog()
+            }
+        }
 
         // File selection button
         selectFileButton.setOnClickListener {
@@ -95,6 +125,8 @@ class MainActivity : AppCompatActivity() {
 
         // Upload button
         uploadButton.setOnClickListener {
+            if (!checkAuth()) return@setOnClickListener
+            
             if (selectedFileUri != null) {
                 uploadFile()
             } else {
@@ -155,15 +187,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun uploadFile() {
         val apiUrl = apiUrlEditText.text.toString().trim()
-        val apiToken = apiTokenEditText.text.toString().trim()
 
         if (apiUrl.isEmpty()) {
             Toast.makeText(this, "Please enter API URL", Toast.LENGTH_SHORT).show()
             return
         }
 
-        if (apiToken.isEmpty()) {
-            Toast.makeText(this, "Please enter API token", Toast.LENGTH_SHORT).show()
+        if (!isLoggedIn || authToken.isNullOrEmpty()) {
+            Toast.makeText(this, getString(R.string.auth_required), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -192,7 +223,7 @@ class MainActivity : AppCompatActivity() {
             val request = Request.Builder()
                 .url("$apiUrl/upload?language=ru")
                 .post(requestBody)
-                .addHeader("X-API-Key", apiToken)
+                .addHeader("Authorization", "Bearer $authToken")
                 .build()
 
             client.newCall(request).enqueue(object : Callback {
@@ -232,12 +263,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun checkJobStatus() {
         val apiUrl = apiUrlEditText.text.toString().trim()
-        val apiToken = apiTokenEditText.text.toString().trim()
         val jobId = currentJobId ?: return
 
         val request = Request.Builder()
             .url("$apiUrl/status/$jobId")
-            .addHeader("X-API-Key", apiToken)
+            .addHeader("Authorization", "Bearer $authToken")
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -285,12 +315,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun fetchResults() {
         val apiUrl = apiUrlEditText.text.toString().trim()
-        val apiToken = apiTokenEditText.text.toString().trim()
         val jobId = currentJobId ?: return
 
         val request = Request.Builder()
             .url("$apiUrl/result/$jobId")
-            .addHeader("X-API-Key", apiToken)
+            .addHeader("Authorization", "Bearer $authToken")
             .build()
 
         client.newCall(request).enqueue(object : Callback {
@@ -338,6 +367,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startRecording() {
+        if (!checkAuth()) return
+        
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) 
             != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(
@@ -473,6 +504,151 @@ class MainActivity : AppCompatActivity() {
             stopRecording()
         }
         recordingTimer.cancel()
+    }
+
+    private fun loadAuthState() {
+        authToken = sharedPreferences.getString("auth_token", null)
+        currentUsername = sharedPreferences.getString("username", null)
+        isLoggedIn = !authToken.isNullOrEmpty() && !currentUsername.isNullOrEmpty()
+        
+        updateAuthUI()
+    }
+    
+    private fun updateAuthUI() {
+        if (isLoggedIn) {
+            authStatusTextView.text = getString(R.string.logged_in_as, currentUsername)
+            loginButton.text = getString(R.string.logout)
+        } else {
+            authStatusTextView.text = getString(R.string.not_logged_in)
+            loginButton.text = getString(R.string.login)
+        }
+    }
+    
+    private fun showLoginDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_login, null)
+        val usernameEditText = dialogView.findViewById<EditText>(R.id.usernameEditText)
+        val passwordEditText = dialogView.findViewById<EditText>(R.id.passwordEditText)
+        val loginDialogButton = dialogView.findViewById<Button>(R.id.loginDialogButton)
+        val cancelDialogButton = dialogView.findViewById<Button>(R.id.cancelDialogButton)
+        val errorTextView = dialogView.findViewById<TextView>(R.id.loginErrorTextView)
+        
+        val dialog = AlertDialog.Builder(this)
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+        
+        loginDialogButton.setOnClickListener {
+            val username = usernameEditText.text.toString().trim()
+            val password = passwordEditText.text.toString()
+            
+            if (username.isEmpty() || password.isEmpty()) {
+                errorTextView.text = getString(R.string.invalid_credentials)
+                errorTextView.visibility = TextView.VISIBLE
+                return@setOnClickListener
+            }
+            
+            loginDialogButton.isEnabled = false
+            errorTextView.visibility = TextView.GONE
+            
+            performLogin(username, password) { success, message ->
+                handler.post {
+                    if (success) {
+                        dialog.dismiss()
+                        updateAuthUI()
+                        Toast.makeText(this, getString(R.string.login_success), Toast.LENGTH_SHORT).show()
+                    } else {
+                        errorTextView.text = message
+                        errorTextView.visibility = TextView.VISIBLE
+                        loginDialogButton.isEnabled = true
+                    }
+                }
+            }
+        }
+        
+        cancelDialogButton.setOnClickListener {
+            dialog.dismiss()
+        }
+        
+        dialog.show()
+    }
+    
+    private fun performLogin(username: String, password: String, callback: (Boolean, String) -> Unit) {
+        val apiUrl = apiUrlEditText.text.toString().trim()
+        if (apiUrl.isEmpty()) {
+            callback(false, getString(R.string.connection_error))
+            return
+        }
+        
+        val formData = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("username", username)
+            .addFormDataPart("password", password)
+            .build()
+        
+        val request = Request.Builder()
+            .url("$apiUrl/auth/login")
+            .post(formData)
+            .build()
+        
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                callback(false, getString(R.string.connection_error))
+            }
+            
+            override fun onResponse(call: Call, response: Response) {
+                if (response.isSuccessful) {
+                    try {
+                        val json = JSONObject(response.body?.string() ?: "")
+                        val token = json.getString("access_token")
+                        val returnedUsername = json.getString("username")
+                        
+                        // Save authentication data
+                        sharedPreferences.edit()
+                            .putString("auth_token", token)
+                            .putString("username", returnedUsername)
+                            .apply()
+                        
+                        authToken = token
+                        currentUsername = returnedUsername
+                        isLoggedIn = true
+                        
+                        callback(true, "")
+                    } catch (e: Exception) {
+                        callback(false, getString(R.string.login_failed))
+                    }
+                } else {
+                    try {
+                        val errorJson = JSONObject(response.body?.string() ?: "")
+                        val errorMessage = errorJson.optString("detail", getString(R.string.login_failed))
+                        callback(false, errorMessage)
+                    } catch (e: Exception) {
+                        callback(false, getString(R.string.login_failed))
+                    }
+                }
+            }
+        })
+    }
+    
+    private fun logout() {
+        sharedPreferences.edit()
+            .remove("auth_token")
+            .remove("username")
+            .apply()
+        
+        authToken = null
+        currentUsername = null
+        isLoggedIn = false
+        
+        updateAuthUI()
+        Toast.makeText(this, getString(R.string.logout_success), Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun checkAuth(): Boolean {
+        if (!isLoggedIn) {
+            Toast.makeText(this, getString(R.string.auth_required), Toast.LENGTH_SHORT).show()
+            return false
+        }
+        return true
     }
 
     companion object {
