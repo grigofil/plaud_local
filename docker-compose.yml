@@ -41,7 +41,9 @@ services:
       --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips="*"
 
   worker_transcribe:
-    build: ./workers/transcribe
+    build: 
+      context: ./workers/transcribe
+      dockerfile: Dockerfile
     env_file: .env
     environment:
       - REDIS_URL=${REDIS_URL:-redis://redis:6379}
@@ -58,8 +60,7 @@ services:
     ports:
       - "8002:8002"
     depends_on: [redis]
-    # Теперь запускаем HTTP сервер вместо RQ worker
-    # command: sh -c "cd /app && PYTHONPATH=/app:/tasks rq worker -u ${REDIS_URL:-redis://redis:6379} asr"
+    command: python server.py
 
   worker_summarize:
     build: ./workers/summarize
