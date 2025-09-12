@@ -24,8 +24,11 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.viewpager2.widget.ViewPager2
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.tabs.TabLayout
+import com.google.android.material.tabs.TabLayoutMediator
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
@@ -64,6 +67,7 @@ class MainActivity : AppCompatActivity() {
     // New UI elements
     private lateinit var toolbar: MaterialToolbar
     private lateinit var clearResultsButton: Button
+    private lateinit var copyResultsButton: Button
     private lateinit var loadHistoryButton: Button
     private lateinit var historyRecyclerView: RecyclerView
     private lateinit var noHistoryTextView: TextView
@@ -71,6 +75,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var levelWrap: LinearLayout
     private lateinit var levelBar: ProgressBar
     private lateinit var levelNum: TextView
+    
+    // Results UI elements
+    private lateinit var resultsProgressLayout: LinearLayout
+    private lateinit var resultsProgressText: TextView
+    private lateinit var resultsTabLayout: TabLayout
+    private lateinit var resultsViewPager: ViewPager2
+    private lateinit var simpleResultsScrollView: ScrollView
+    
+    // Result parsing
+    private lateinit var resultParser: ResultParser
+    private var currentFormattedResult: FormattedResult? = null
 
     private var selectedFileUri: Uri? = null
     private var currentJobId: String? = null
@@ -140,6 +155,7 @@ class MainActivity : AppCompatActivity() {
             
             // Initialize new views
             clearResultsButton = findViewById(R.id.clearResultsButton)
+            copyResultsButton = findViewById(R.id.copyResultsButton)
             loadHistoryButton = findViewById(R.id.loadHistoryButton)
             historyRecyclerView = findViewById(R.id.historyRecyclerView)
             noHistoryTextView = findViewById(R.id.noHistoryTextView)
@@ -147,6 +163,16 @@ class MainActivity : AppCompatActivity() {
             levelWrap = findViewById(R.id.levelWrap)
             levelBar = findViewById(R.id.levelBar)
             levelNum = findViewById(R.id.levelNum)
+            
+            // Initialize results views
+            resultsProgressLayout = findViewById(R.id.resultsProgressLayout)
+            resultsProgressText = findViewById(R.id.resultsProgressText)
+            resultsTabLayout = findViewById(R.id.resultsTabLayout)
+            resultsViewPager = findViewById(R.id.resultsViewPager)
+            simpleResultsScrollView = findViewById(R.id.simpleResultsScrollView)
+            
+            // Initialize result parser
+            resultParser = ResultParser()
             
             // Initialize SharedPreferences
             sharedPreferences = getSharedPreferences("plaud_auth", MODE_PRIVATE)
@@ -218,6 +244,11 @@ class MainActivity : AppCompatActivity() {
             // Clear results button
             clearResultsButton.setOnClickListener {
                 clearResults()
+            }
+            
+            // Copy results button
+            copyResultsButton.setOnClickListener {
+                copyResults()
             }
             
             // Load history button
@@ -412,6 +443,13 @@ class MainActivity : AppCompatActivity() {
         val apiUrl = apiUrlEditText.text.toString().trim()
         val jobId = currentJobId ?: return
 
+        // Show progress indicator
+        resultsProgressLayout.visibility = View.VISIBLE
+        resultsProgressText.text = getString(R.string.processing)
+        simpleResultsScrollView.visibility = View.GONE
+        resultsTabLayout.visibility = View.GONE
+        resultsViewPager.visibility = View.GONE
+
         val request = Request.Builder()
             .url("$apiUrl/result/$jobId")
             .addHeader("Authorization", "Bearer $authToken")
@@ -420,41 +458,31 @@ class MainActivity : AppCompatActivity() {
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
                 handler.post {
+                    resultsProgressLayout.visibility = View.GONE
                     statusTextView.text = getString(R.string.error)
                     resultTextView.text = "Failed to fetch results: ${e.message}"
+                    simpleResultsScrollView.visibility = View.VISIBLE
                 }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 handler.post {
+                    resultsProgressLayout.visibility = View.GONE
                     if (response.isSuccessful) {
                         val responseBody = response.body?.string()
                         try {
-                            val json = JSONObject(responseBody)
-                            val transcript = json.optJSONObject("transcript")
-                            val summary = json.optJSONObject("summary")
-                            
-                            val resultText = StringBuilder()
-                            resultText.append("=== TRANSCRIPT ===\n")
-                            if (transcript != null) {
-                                resultText.append(transcript.toString(2))
+                            val resultData = resultParser.parseResults(responseBody ?: "")
+                            if (resultData != null) {
+                                currentFormattedResult = resultParser.formatResults(resultData)
+                                displayFormattedResults(currentFormattedResult!!)
                             } else {
-                                resultText.append("No transcript available")
+                                showError("Failed to parse results")
                             }
-                            
-                            resultText.append("\n\n=== SUMMARY ===\n")
-                            if (summary != null) {
-                                resultText.append(summary.toString(2))
-                            } else {
-                                resultText.append("No summary available")
-                            }
-                            
-                            resultTextView.text = resultText.toString()
                         } catch (e: Exception) {
-                            resultTextView.text = "Failed to parse results: ${e.message}"
+                            showError("Failed to parse results: ${e.message}")
                         }
                     } else {
-                        resultTextView.text = "Failed to fetch results: ${response.code}"
+                        showError("Failed to fetch results: ${response.code}")
                     }
                 }
             }
@@ -806,7 +834,40 @@ class MainActivity : AppCompatActivity() {
     
     private fun clearResults() {
         resultTextView.text = getString(R.string.no_results_yet)
+        currentFormattedResult = null
+        simpleResultsScrollView.visibility = View.VISIBLE
+        resultsTabLayout.visibility = View.GONE
+        resultsViewPager.visibility = View.GONE
         showToast("Results cleared")
+    }
+    
+    private fun copyResults() {
+        if (currentFormattedResult != null) {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = ClipData.newPlainText("Results", resultParser.getCopyableText(currentFormattedResult!!))
+            clipboard.setPrimaryClip(clip)
+            showToast(getString(R.string.results_copied))
+        } else {
+            showToast(getString(R.string.no_results_to_copy))
+        }
+    }
+    
+    private fun displayFormattedResults(formattedResult: FormattedResult) {
+        // For now, use simple text display
+        // TODO: Implement tabbed view with ViewPager2
+        val displayText = resultParser.getCopyableText(formattedResult)
+        resultTextView.text = displayText
+        simpleResultsScrollView.visibility = View.VISIBLE
+        resultsTabLayout.visibility = View.GONE
+        resultsViewPager.visibility = View.GONE
+    }
+    
+    private fun showError(message: String) {
+        statusTextView.text = getString(R.string.error)
+        resultTextView.text = message
+        simpleResultsScrollView.visibility = View.VISIBLE
+        resultsTabLayout.visibility = View.GONE
+        resultsViewPager.visibility = View.GONE
     }
     
     private fun loadHistory() {

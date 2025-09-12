@@ -163,4 +163,23 @@
     <string name="notification_complete_text">Your audio has been processed successfully</string>
     <string name="notification_error_title">Processing Error</string>
     <string name="notification_error_text">An error occurred while processing your audio</string>
+    
+    <!-- Results formatting strings -->
+    <string name="transcript_section">=== ТРАНСКРИПТ ===</string>
+    <string name="summary_section">=== САММАРИ ===</string>
+    <string name="key_points_section">=== КЛЮЧЕВЫЕ МОМЕНТЫ ===</string>
+    <string name="action_items_section">=== ЗАДАЧИ ===</string>
+    <string name="risks_section">=== РИСКИ ===</string>
+    <string name="meeting_summary_section">=== САММАРИ ВСТРЕЧИ ===</string>
+    <string name="transcript_not_available">Транскрипт недоступен</string>
+    <string name="summary_not_available">Саммари недоступно</string>
+    <string name="key_points_not_available">Ключевые моменты недоступны</string>
+    <string name="action_items_not_available">Задачи недоступны</string>
+    <string name="risks_not_available">Риски не определены</string>
+    <string name="meeting_summary_not_available">Саммари встречи недоступно</string>
+    <string name="copy_results">Copy Results</string>
+    <string name="results_copied">Results copied to clipboard</string>
+    <string name="no_results_to_copy">No results to copy</string>
+    <string name="processing_results">Processing results...</string>
+    <string name="results_ready">Results ready</string>
 </resources>

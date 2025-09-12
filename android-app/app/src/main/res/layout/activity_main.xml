@@ -249,19 +249,27 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <ProgressBar
-                        android:id="@+id/progressBar"
+                    <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:visibility="gone"
-                        android:layout_marginBottom="8dp" />
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
 
-                    <TextView
-                        android:id="@+id/statusTextView"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/ready_to_upload"
-                        android:layout_marginBottom="8dp" />
+                        <ProgressBar
+                            android:id="@+id/progressBar"
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:visibility="gone"
+                            android:layout_marginEnd="8dp" />
+
+                        <TextView
+                            android:id="@+id/statusTextView"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/ready_to_upload" />
+                    </LinearLayout>
 
                 </LinearLayout>
 
@@ -296,6 +304,15 @@
                             android:textStyle="bold" />
 
                         <com.google.android.material.button.MaterialButton
+                            android:id="@+id/copyResultsButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/copy_results"
+                            android:layout_marginEnd="8dp"
+                            app:icon="@drawable/ic_copy"
+                            style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/clearResultsButton"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
@@ -304,7 +321,49 @@
                             style="@style/Widget.Material3.Button.OutlinedButton" />
                     </LinearLayout>
 
+                    <!-- Progress indicator -->
+                    <LinearLayout
+                        android:id="@+id/resultsProgressLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="12dp"
+                        android:visibility="gone">
+
+                        <ProgressBar
+                            android:layout_width="20dp"
+                            android:layout_height="20dp"
+                            android:layout_marginEnd="8dp" />
+
+                        <TextView
+                            android:id="@+id/resultsProgressText"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/processing"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <!-- Results content with tabs -->
+                    <com.google.android.material.tabs.TabLayout
+                        android:id="@+id/resultsTabLayout"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:visibility="gone"
+                        app:tabMode="fixed"
+                        app:tabGravity="fill" />
+
+                    <androidx.viewpager2.widget.ViewPager2
+                        android:id="@+id/resultsViewPager"
+                        android:layout_width="match_parent"
+                        android:layout_height="300dp"
+                        android:visibility="gone" />
+
+                    <!-- Fallback for simple text display -->
                     <ScrollView
+                        android:id="@+id/simpleResultsScrollView"
                         android:layout_width="match_parent"
                         android:layout_height="200dp">
 
@@ -312,7 +371,10 @@
                             android:id="@+id/resultTextView"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="@string/no_results_yet" />
+                            android:text="@string/no_results_yet"
+                            android:padding="8dp"
+                            android:background="@drawable/rounded_background"
+                            android:textIsSelectable="true" />
                     </ScrollView>
 
                 </LinearLayout>
