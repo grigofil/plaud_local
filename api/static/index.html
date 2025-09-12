@@ -177,6 +177,7 @@
       </div>
       <div class="toolbar">
         <button id="loginBtn" class="btn btn-ghost">🔑 Войти</button>
+        <button id="registerBtn" class="btn btn-ghost" style="display:none">📝 Регистрация</button>
         <button id="usersBtn" class="btn btn-ghost" style="display:none">👥 Пользователи</button>
         <button id="helpBtn" class="btn btn-ghost">❓ Подсказки</button>
         <button id="themeToggle" class="btn btn-icon" title="Сменить тему" aria-label="Сменить тему">🌞</button>
@@ -360,6 +361,12 @@
   $('#loginBtn').onclick = () => {
     console.log(`Login button clicked`);
     openLoginModal();
+  };
+
+  // Register button handler
+  $('#registerBtn').onclick = () => {
+    console.log(`Register button clicked`);
+    window.location.href = '/app/register.html';
   };
 
   // Login form handler
@@ -933,6 +940,7 @@
     const username = localStorage.getItem('plaud_username');
     const isAdmin = localStorage.getItem('plaud_is_admin') === 'true';
     const loginBtn = $('#loginBtn');
+    const registerBtn = $('#registerBtn');
     const usersBtn = $('#usersBtn');
     
     console.log(`updateAuthUI: token=${!!token}, username=${username}, isAdmin=${isAdmin}`);
@@ -945,6 +953,9 @@
       loginBtn.textContent = newText;
       loginBtn.title = 'Выйти из системы';
       loginBtn.onclick = handleLogout;
+      
+      // Скрываем кнопку регистрации для авторизованных пользователей
+      registerBtn.style.display = 'none';
       
       // Показываем кнопку управления пользователями только администраторам
       const shouldShowUsersBtn = isAdmin;
@@ -959,6 +970,14 @@
         console.log(`Login button clicked`);
         openLoginModal();
       };
+      
+      // Показываем кнопку регистрации для неавторизованных пользователей
+      registerBtn.style.display = 'block';
+      registerBtn.onclick = () => {
+        console.log(`Register button clicked`);
+        window.location.href = '/app/register.html';
+      };
+      
       usersBtn.style.display = 'none';
       console.log(`UI updated: user not logged in, button text: "🔑 Войти"`);
     }
@@ -1265,6 +1284,7 @@
         <div class="row" style="margin-top:12px;justify-content:center">
           <button class="btn btn-ghost btn-json">📥 Скачать JSON</button>
           <button class="btn btn-ghost btn-copy">📋 Скопировать саммари</button>
+          <button class="btn btn-ghost btn-copy-transcript">📄 Скопировать транскрипт</button>
         </div>
       </div>`;
 
@@ -1433,6 +1453,19 @@
         console.log(`Setting up button handlers`);
         if (btnJson) btnJson.onclick = () => { const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`result_${data.job_id}.json`; a.click(); URL.revokeObjectURL(a.href); showNotification('📥 JSON скачан','success'); };
         if (btnCopy) btnCopy.onclick = async () => { try { const text = summaryContent?.textContent||''; await navigator.clipboard.writeText(text); btnCopy.textContent='📋 Скопировано!'; setTimeout(()=>btnCopy.textContent='📋 Скопировать саммари',1800); showNotification('📋 Саммари скопировано','success'); } catch(_) { showNotification('❌ Не удалось скопировать','error'); } };
+        
+        const btnCopyTranscript = el.querySelector('.btn-copy-transcript');
+        if (btnCopyTranscript) btnCopyTranscript.onclick = async () => { 
+          try { 
+            const text = transcriptContent?.textContent||''; 
+            await navigator.clipboard.writeText(text); 
+            btnCopyTranscript.textContent='📄 Скопировано!'; 
+            setTimeout(()=>btnCopyTranscript.textContent='📄 Скопировать транскрипт',1800); 
+            showNotification('📄 Транскрипт скопирован','success'); 
+          } catch(_) { 
+            showNotification('❌ Не удалось скопировать','error'); 
+          } 
+        };
       }
     };
     
@@ -1574,7 +1607,8 @@
       </div>
       <div style="text-align:center;margin-top:12px">
         <button onclick="downloadResult('${data.job_id}', ${JSON.stringify(data).replace(/"/g,'&quot;')})" class="btn btn-ghost" style="margin-right:6px">📥 Скачать JSON</button>
-        <button onclick="copySummary(${JSON.stringify(sm).replace(/"/g,'&quot;')})" class="btn btn-ghost">📋 Скопировать саммари</button>
+        <button onclick="copySummary(${JSON.stringify(sm).replace(/"/g,'&quot;')})" class="btn btn-ghost" style="margin-right:6px">📋 Скопировать саммари</button>
+        <button onclick="copyTranscript(${JSON.stringify(tr).replace(/"/g,'&quot;')})" class="btn btn-ghost">📄 Скопировать транскрипт</button>
       </div>`;
     resultsList.insertBefore(resultCard, resultsList.firstChild);
     console.log(`Result card added to results list`);
@@ -1640,6 +1674,15 @@
     if (summary.risks?.length) t+=`Риски:\n${summary.risks.map(r=>`- ${r}`).join('\n')}\n\n`; 
     if (summary.raw && !summary.meeting_summary) t+=summary.raw; 
     navigator.clipboard.writeText(t).then(()=>showNotification('📋 Саммари скопировано!','success')).catch(()=>showNotification('❌ Не удалось скопировать','error')); 
+  };
+  
+  window.copyTranscript = function(transcript){ 
+    console.log(`copyTranscript:`, transcript); 
+    let t=''; 
+    if (!transcript) return; 
+    if (transcript.text) t+=`${transcript.text}\n\n`; 
+    if (transcript.segments?.length) t+=`Сегменты:\n${transcript.segments.map(s=>`[${formatTime(s.start)} - ${formatTime(s.end)}] ${s.text}`).join('\n')}`; 
+    navigator.clipboard.writeText(t).then(()=>showNotification('📄 Транскрипт скопирован!','success')).catch(()=>showNotification('❌ Не удалось скопировать','error')); 
   };
   window.clearResults = function(){ 
     if (confirm('Очистить все результаты?')) { 
