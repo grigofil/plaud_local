@@ -103,8 +103,8 @@ class MainActivity : AppCompatActivity() {
         // Initialize SharedPreferences
         sharedPreferences = getSharedPreferences("plaud_auth", MODE_PRIVATE)
 
-        // Set default API URL (localhost for emulator, change for real device)
-        apiUrlEditText.setText("http://10.0.2.2:8000")
+        // Set default API URL
+        apiUrlEditText.setText("https://plaud.grigofil.keenetic.link")
 
         // Load saved authentication
         loadAuthState()
