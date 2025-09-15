@@ -6,11 +6,11 @@ import androidx.fragment.app.Fragment
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.appbar.MaterialToolbar
 
-class MainActivity : AppCompatActivity() {
-
+class MainActivityNew : AppCompatActivity() {
+    
     private lateinit var bottomNavigation: BottomNavigationView
     private lateinit var toolbar: MaterialToolbar
-
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main_new)
@@ -57,3 +57,4 @@ class MainActivity : AppCompatActivity() {
             .commit()
     }
 }
+

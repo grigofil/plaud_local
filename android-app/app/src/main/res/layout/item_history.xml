@@ -45,24 +45,24 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Job ID: 12345"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textColor="@color/text_secondary"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="3dp" />
 
         <TextView
             android:id="@+id/createdAtTextView"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Created: 2024-01-01 12:00"
-            android:textSize="12sp"
+            android:textSize="11sp"
             android:textColor="@color/text_secondary"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="6dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="8dp">
+            android:layout_marginBottom="6dp">
 
             <TextView
                 android:id="@+id/transcriptStatusTextView"
@@ -70,7 +70,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Transcript: Available"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:textColor="@color/success_color" />
 
             <TextView
@@ -79,7 +79,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:text="Summary: Available"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:textColor="@color/success_color" />
 
         </LinearLayout>
@@ -92,32 +92,44 @@
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/viewDetailsButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="36dp"
                 android:layout_weight="1"
                 android:text="@string/view_details"
-                android:layout_marginEnd="4dp"
+                android:layout_marginEnd="2dp"
+                android:textSize="12sp"
+                android:minHeight="36dp"
                 app:icon="@drawable/ic_file"
+                app:iconSize="16dp"
+                app:iconPadding="4dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/downloadButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="36dp"
                 android:layout_weight="1"
-                android:text="@string/download_json"
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp"
+                android:text="@string/download_json_short"
+                android:layout_marginStart="2dp"
+                android:layout_marginEnd="2dp"
+                android:textSize="12sp"
+                android:minHeight="36dp"
                 app:icon="@drawable/ic_upload"
+                app:iconSize="16dp"
+                app:iconPadding="4dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/deleteButton"
                 android:layout_width="0dp"
-                android:layout_height="wrap_content"
+                android:layout_height="36dp"
                 android:layout_weight="1"
                 android:text="@string/delete_job"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="2dp"
+                android:textSize="12sp"
+                android:minHeight="36dp"
                 app:icon="@drawable/ic_clear"
+                app:iconSize="16dp"
+                app:iconPadding="4dp"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 
         </LinearLayout>

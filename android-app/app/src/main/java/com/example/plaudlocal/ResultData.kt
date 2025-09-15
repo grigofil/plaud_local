@@ -1,5 +1,8 @@
 package com.example.plaudlocal
 
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+
 data class ResultData(
     val transcript: String? = null,
     val summary: String? = null,
@@ -15,13 +18,15 @@ data class ResultData(
     val dueDate: String? = null
 )
 
+@Parcelize
 data class TranscriptSegment(
     val start: Double,
     val end: Double,
     val text: String,
     val speaker: String? = null
-)
+) : Parcelable
 
+@Parcelize
 data class FormattedResult(
     val transcriptText: String,
     val summaryText: String,
@@ -32,4 +37,4 @@ data class FormattedResult(
     val rawSummaryText: String,
     val segmentsText: String,
     val fullText: String
-)
+) : Parcelable
