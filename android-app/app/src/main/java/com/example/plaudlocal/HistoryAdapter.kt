@@ -11,7 +11,7 @@ import java.util.*
 
 class HistoryAdapter(
     private val historyList: List<HistoryItem>,
-    private val onItemClick: (HistoryItem) -> Unit
+    private val onItemClick: (HistoryItem, String) -> Unit
 ) : RecyclerView.Adapter<HistoryAdapter.HistoryViewHolder>() {
 
     class HistoryViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
@@ -55,30 +55,30 @@ class HistoryAdapter(
         holder.transcriptStatusTextView.text = if (item.hasTranscript) "Transcript: Available" else "Transcript: Not available"
         holder.transcriptStatusTextView.setTextColor(
             if (item.hasTranscript) 
-                holder.itemView.context.getColor(R.color.success_color)
+                holder.itemView.context.getColor(android.R.color.holo_green_dark)
             else 
-                holder.itemView.context.getColor(R.color.text_secondary)
+                holder.itemView.context.getColor(android.R.color.darker_gray)
         )
         
         holder.summaryStatusTextView.text = if (item.hasSummary) "Summary: Available" else "Summary: Not available"
         holder.summaryStatusTextView.setTextColor(
             if (item.hasSummary) 
-                holder.itemView.context.getColor(R.color.success_color)
+                holder.itemView.context.getColor(android.R.color.holo_green_dark)
             else 
-                holder.itemView.context.getColor(R.color.text_secondary)
+                holder.itemView.context.getColor(android.R.color.darker_gray)
         )
         
         // Set click listeners
         holder.viewDetailsButton.setOnClickListener {
-            onItemClick(item)
+            onItemClick(item, "view_details")
         }
         
         holder.downloadButton.setOnClickListener {
-            // TODO: Implement download
+            onItemClick(item, "download")
         }
         
         holder.deleteButton.setOnClickListener {
-            // TODO: Implement delete
+            onItemClick(item, "delete")
         }
     }
 

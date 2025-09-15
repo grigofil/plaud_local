@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Plaud Local</string>
     <string name="api_url_hint">API URL (e.g., http://192.168.1.100:8000)</string>
@@ -80,6 +81,7 @@
     <string name="language">Language</string>
     <string name="russian">Russian</string>
     <string name="english">English</string>
+    <string name="save">Save</string>
     <string name="about">About</string>
     <string name="version">Version: %s</string>
     <string name="users_management">Users Management</string>
@@ -103,7 +105,6 @@
     <string name="no">No</string>
     <string name="ok">OK</string>
     <string name="close">Close</string>
-    <string name="save">Save</string>
     <string name="loading">Loading...</string>
     <string name="error_occurred">An error occurred</string>
     <string name="network_error">Network error</string>
@@ -169,18 +170,18 @@
     <string name="notification_error_text">An error occurred while processing your audio</string>
     
     <!-- Results formatting strings -->
-    <string name="transcript_section">=== ТРАНСКРИПТ ===</string>
-    <string name="summary_section">=== САММАРИ ===</string>
-    <string name="key_points_section">=== КЛЮЧЕВЫЕ МОМЕНТЫ ===</string>
-    <string name="action_items_section">=== ЗАДАЧИ ===</string>
-    <string name="risks_section">=== РИСКИ ===</string>
-    <string name="meeting_summary_section">=== САММАРИ ВСТРЕЧИ ===</string>
-    <string name="transcript_not_available_ru">Транскрипт недоступен</string>
-    <string name="summary_not_available_ru">Саммари недоступно</string>
-    <string name="key_points_not_available">Ключевые моменты недоступны</string>
-    <string name="action_items_not_available">Задачи недоступны</string>
-    <string name="risks_not_available">Риски не определены</string>
-    <string name="meeting_summary_not_available">Саммари встречи недоступно</string>
+    <string name="transcript_section">=== TRANSCRIPT ===</string>
+    <string name="summary_section">=== SUMMARY ===</string>
+    <string name="key_points_section">=== KEY POINTS ===</string>
+    <string name="action_items_section">=== ACTION ITEMS ===</string>
+    <string name="risks_section">=== RISKS ===</string>
+    <string name="meeting_summary_section">=== MEETING SUMMARY ===</string>
+    <string name="transcript_not_available_ru">Transcript not available</string>
+    <string name="summary_not_available_ru">Summary not available</string>
+    <string name="key_points_not_available">Key points not available</string>
+    <string name="action_items_not_available">Action items not available</string>
+    <string name="risks_not_available">Risks not identified</string>
+    <string name="meeting_summary_not_available">Meeting summary not available</string>
     <string name="copy_results">Copy Results</string>
     <string name="results_copied">Results copied to clipboard</string>
     <string name="no_results_to_copy">No results to copy</string>
@@ -201,3 +202,4 @@
     <string name="results_copied_toast">Results copied to clipboard</string>
     <string name="share_results_title">Share Results</string>
 </resources>
+
