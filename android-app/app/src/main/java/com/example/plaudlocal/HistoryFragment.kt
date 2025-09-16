@@ -36,6 +36,8 @@ class HistoryFragment : Fragment() {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
+    private lateinit var tokenManager: TokenManager
+    
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -51,6 +53,7 @@ class HistoryFragment : Fragment() {
         // Initialize components
         sharedPreferences = requireContext().getSharedPreferences("plaud_settings", Context.MODE_PRIVATE)
         resultParser = ResultParser()
+        tokenManager = TokenManager(requireContext())
         
         setupRecyclerView()
         setupClickListeners()
@@ -80,35 +83,22 @@ class HistoryFragment : Fragment() {
     
     private fun loadHistory() {
         val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
-        val authToken = sharedPreferences.getString("auth_token", "") ?: ""
         
         if (apiUrl.isEmpty()) {
             Toast.makeText(requireContext(), "Please set API URL in settings", Toast.LENGTH_SHORT).show()
             return
         }
         
-        if (authToken.isEmpty()) {
-            Toast.makeText(requireContext(), "Please login first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
         Toast.makeText(requireContext(), "Loading history...", Toast.LENGTH_SHORT).show()
         
-        val request = Request.Builder()
-            .url("$apiUrl/history")
-            .addHeader("Authorization", "Bearer $authToken")
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                requireActivity().runOnUiThread {
-                    if (_binding == null) return@runOnUiThread
-                    Toast.makeText(requireContext(), "Failed to load history: ${e.message}", Toast.LENGTH_SHORT).show()
-                    updateHistoryUI()
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                Request.Builder()
+                    .url("$apiUrl/history")
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
                 requireActivity().runOnUiThread {
                     if (_binding == null) return@runOnUiThread
                     if (response.isSuccessful) {
@@ -144,8 +134,27 @@ class HistoryFragment : Fragment() {
                         updateHistoryUI()
                     }
                 }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                        // Автоматический logout при неудачном обновлении токена
+                        sharedPreferences.edit()
+                            .remove("auth_token")
+                            .remove("username")
+                            .putBoolean("is_logged_in", false)
+                            .apply()
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to load history: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    updateHistoryUI()
+                }
             }
-        })
+        )
     }
     
     private fun updateHistoryUI() {
@@ -169,24 +178,17 @@ class HistoryFragment : Fragment() {
     
     private fun fetchJobResults(jobId: String) {
         val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
-        val authToken = sharedPreferences.getString("auth_token", "") ?: ""
         
         Toast.makeText(requireContext(), "Loading results...", Toast.LENGTH_SHORT).show()
         
-        val request = Request.Builder()
-            .url("$apiUrl/result/$jobId")
-            .addHeader("Authorization", "Bearer $authToken")
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                requireActivity().runOnUiThread {
-                    if (_binding == null) return@runOnUiThread
-                    Toast.makeText(requireContext(), "Failed to load results: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                Request.Builder()
+                    .url("$apiUrl/result/$jobId")
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
                 requireActivity().runOnUiThread {
                     if (_binding == null) return@runOnUiThread
                     if (response.isSuccessful) {
@@ -210,8 +212,20 @@ class HistoryFragment : Fragment() {
                         Toast.makeText(requireContext(), "Failed to load results: ${response.code}", Toast.LENGTH_SHORT).show()
                     }
                 }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to load results: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-        })
+        )
     }
     
     private fun downloadJob(historyItem: HistoryItem) {
@@ -220,8 +234,59 @@ class HistoryFragment : Fragment() {
     }
     
     private fun deleteJob(historyItem: HistoryItem) {
-        // TODO: Implement delete job
-        Toast.makeText(requireContext(), "Delete ${historyItem.filename}", Toast.LENGTH_SHORT).show()
+        val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
+        
+        if (apiUrl.isEmpty()) {
+            Toast.makeText(requireContext(), "Please set API URL in settings", Toast.LENGTH_SHORT).show()
+            return
+        }
+        
+        Toast.makeText(requireContext(), "Deleting ${historyItem.filename}...", Toast.LENGTH_SHORT).show()
+        
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                Request.Builder()
+                    .url("$apiUrl/history/${historyItem.jobId}")
+                    .delete()
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    if (response.isSuccessful) {
+                        // Remove the item from the list and update UI
+                        val position = historyList.indexOfFirst { it.jobId == historyItem.jobId }
+                        if (position != -1) {
+                            historyList.removeAt(position)
+                            historyAdapter.notifyItemRemoved(position)
+                            updateHistoryUI()
+                            Toast.makeText(requireContext(), "Job deleted successfully", Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to delete job: ${response.code}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                        // Автоматический logout при неудачном обновлении токена
+                        sharedPreferences.edit()
+                            .remove("auth_token")
+                            .remove("username")
+                            .putBoolean("is_logged_in", false)
+                            .apply()
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to delete job: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
     }
     
     override fun onDestroyView() {

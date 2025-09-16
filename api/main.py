@@ -206,6 +206,43 @@ async def login_user(
         "username": user.username
     }
 
+@app.post("/auth/refresh")
+async def refresh_token(
+    username: str = Form(...),
+    authorization: str = Header(...),
+    db: Session = Depends(get_db)
+):
+    """Обновление JWT токена"""
+    # Проверяем текущий токен
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header required")
+    
+    token = authorization.split(" ", 1)[1].strip()
+    payload = decode_access_token(token)
+    
+    if not payload or "sub" not in payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Проверяем, что username совпадает с токеном
+    token_username = payload.get("sub")
+    if token_username != username:
+        raise HTTPException(status_code=401, detail="Username mismatch")
+    
+    # Проверяем существование пользователя
+    user = db.query(User).filter(User.username == username).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+    
+    # Создаем новый токен
+    new_access_token = create_access_token(data={"sub": user.username})
+    
+    return {
+        "access_token": new_access_token,
+        "token_type": "bearer",
+        "user_id": user.id,
+        "username": user.username
+    }
+
 @app.get("/auth/me")
 async def get_current_user(
     authorization: str = Header(...),

@@ -62,6 +62,8 @@ class RecordingFragment : Fragment() {
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
     
+    private lateinit var tokenManager: TokenManager
+    
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
@@ -87,6 +89,7 @@ class RecordingFragment : Fragment() {
         // Initialize components
         sharedPreferences = requireContext().getSharedPreferences("plaud_settings", Context.MODE_PRIVATE)
         resultParser = ResultParser()
+        tokenManager = TokenManager(requireContext())
         
         setupClickListeners()
         updateRecordingUI()
@@ -302,15 +305,9 @@ class RecordingFragment : Fragment() {
     
     private fun uploadAudioFile() {
         val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
-        val authToken = sharedPreferences.getString("auth_token", "") ?: ""
         
         if (apiUrl.isEmpty()) {
             Toast.makeText(requireContext(), "Please set API URL in settings", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
-        if (authToken.isEmpty()) {
-            Toast.makeText(requireContext(), "Please login first", Toast.LENGTH_SHORT).show()
             return
         }
         
@@ -337,29 +334,20 @@ class RecordingFragment : Fragment() {
         binding.statusTextView.text = getString(R.string.uploading)
         binding.uploadButton.isEnabled = false
         
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("file", fileToUpload.name, RequestBody.create("audio/*".toMediaType(), fileToUpload))
-            .build()
-        
-        val request = Request.Builder()
-            .url("$apiUrl/upload?language=ru")
-            .post(requestBody)
-            .addHeader("Authorization", "Bearer $authToken")
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                requireActivity().runOnUiThread {
-                    if (_binding == null) return@runOnUiThread
-                    binding.progressBar.visibility = View.GONE
-                    binding.statusTextView.text = getString(R.string.error)
-                    binding.uploadButton.isEnabled = true
-                    Toast.makeText(requireContext(), "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                val requestBody = MultipartBody.Builder()
+                    .setType(MultipartBody.FORM)
+                    .addFormDataPart("file", fileToUpload.name, RequestBody.create("audio/*".toMediaType(), fileToUpload))
+                    .build()
+                
+                Request.Builder()
+                    .url("$apiUrl/upload?language=ru")
+                    .post(requestBody)
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
                 requireActivity().runOnUiThread {
                     if (_binding == null) return@runOnUiThread
                     binding.progressBar.visibility = View.GONE
@@ -380,30 +368,43 @@ class RecordingFragment : Fragment() {
                     }
                     binding.uploadButton.isEnabled = true
                 }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    binding.progressBar.visibility = View.GONE
+                    binding.statusTextView.text = getString(R.string.error)
+                    binding.uploadButton.isEnabled = true
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                        // Автоматический logout при неудачном обновлении токена
+                        sharedPreferences.edit()
+                            .remove("auth_token")
+                            .remove("username")
+                            .putBoolean("is_logged_in", false)
+                            .apply()
+                    } else {
+                        Toast.makeText(requireContext(), "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-        })
+        )
     }
     
     private fun checkJobStatus() {
         val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
-        val authToken = sharedPreferences.getString("auth_token", "") ?: ""
         val jobId = currentJobId ?: return
         
-        val request = Request.Builder()
-            .url("$apiUrl/status/$jobId")
-            .addHeader("Authorization", "Bearer $authToken")
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                requireActivity().runOnUiThread {
-                    if (_binding == null) return@runOnUiThread
-                    binding.statusTextView.text = getString(R.string.error)
-                    Toast.makeText(requireContext(), "Status check failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                Request.Builder()
+                    .url("$apiUrl/status/$jobId")
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
                 requireActivity().runOnUiThread {
                     if (_binding == null) return@runOnUiThread
                     if (response.isSuccessful) {
@@ -435,13 +436,25 @@ class RecordingFragment : Fragment() {
                         Toast.makeText(requireContext(), "Status check failed: ${response.code}", Toast.LENGTH_SHORT).show()
                     }
                 }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    binding.statusTextView.text = getString(R.string.error)
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(requireContext(), "Status check failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-        })
+        )
     }
     
     private fun fetchResults() {
         val apiUrl = sharedPreferences.getString("api_url", "") ?: ""
-        val authToken = sharedPreferences.getString("auth_token", "") ?: ""
         val jobId = currentJobId ?: return
         
         if (_binding == null) return
@@ -451,23 +464,14 @@ class RecordingFragment : Fragment() {
         binding.resultsTabLayout.visibility = View.GONE
         binding.resultsViewPager.visibility = View.GONE
         
-        val request = Request.Builder()
-            .url("$apiUrl/result/$jobId")
-            .addHeader("Authorization", "Bearer $authToken")
-            .build()
-        
-        client.newCall(request).enqueue(object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                requireActivity().runOnUiThread {
-                    if (_binding == null) return@runOnUiThread
-                    binding.resultsProgressLayout.visibility = View.GONE
-                    binding.statusTextView.text = getString(R.string.error)
-                    binding.simpleResultsScrollView.visibility = View.VISIBLE
-                    Toast.makeText(requireContext(), "Failed to fetch results: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-            
-            override fun onResponse(call: Call, response: Response) {
+        tokenManager.executeWithTokenRefreshAsync(
+            requestBuilder = { authToken ->
+                Request.Builder()
+                    .url("$apiUrl/result/$jobId")
+                    .addHeader("Authorization", "Bearer $authToken")
+                    .build()
+            },
+            onSuccess = { response ->
                 requireActivity().runOnUiThread {
                     if (_binding == null) return@runOnUiThread
                     binding.resultsProgressLayout.visibility = View.GONE
@@ -488,8 +492,23 @@ class RecordingFragment : Fragment() {
                         Toast.makeText(requireContext(), "Failed to fetch results: ${response.code}", Toast.LENGTH_SHORT).show()
                     }
                 }
+                response.close()
+            },
+            onFailure = { e ->
+                requireActivity().runOnUiThread {
+                    if (_binding == null) return@runOnUiThread
+                    binding.resultsProgressLayout.visibility = View.GONE
+                    binding.statusTextView.text = getString(R.string.error)
+                    binding.simpleResultsScrollView.visibility = View.VISIBLE
+                    
+                    if (e.message?.contains("Token refresh failed") == true) {
+                        Toast.makeText(requireContext(), "Session expired. Please login again.", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(requireContext(), "Failed to fetch results: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                }
             }
-        })
+        )
     }
     
     private fun displayFormattedResults(formattedResult: FormattedResult) {
